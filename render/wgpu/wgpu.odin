@@ -1,0 +1,748 @@
+package renderer_wgpu
+
+import "base:runtime"
+import "core:fmt"
+import "core:math/linalg"
+import "vendor:wgpu"
+
+import core "../../core"
+
+// Maximum number of quads per batch before flushing.
+@(private = "file")
+BATCH_MAX_QUADS :: 4096
+@(private = "file")
+BATCH_MAX_VERTICES :: BATCH_MAX_QUADS * 6
+
+// Vertex layout: position (2 floats) + texcoord (2 floats) + color (4 floats) = 8 floats = 32 bytes
+@(private = "file")
+VERTEX_FLOATS :: 8
+@(private = "file")
+VERTEX_SIZE :: VERTEX_FLOATS * size_of(f32)
+
+@(private = "file")
+MAX_BIND_GROUPS_PER_FRAME :: 256
+
+@(private = "file")
+Renderer_Stats :: struct {
+	draw_calls:       int,
+	quads:            int,
+	vertices:         int,
+	texture_switches: int,
+	textures_alive:   int,
+	texture_memory:   int, // estimated bytes (w * h * 4)
+}
+
+// Internal GPU resource pair for a texture.
+@(private = "file")
+Texture_Entry :: struct {
+	handle: wgpu.Texture,
+	view:   wgpu.TextureView,
+	width:  int,
+	height: int,
+}
+
+@(private = "file")
+Renderer :: struct {
+	ctx:                    runtime.Context,
+
+	// Reference to the window backend for framebuffer queries.
+	window:                 ^core.Window_Backend,
+
+	// Callback invoked once the GPU device is ready.
+	on_initialized:         proc(),
+
+	// Core wgpu objects
+	instance:               wgpu.Instance,
+	surface:                wgpu.Surface,
+	adapter:                wgpu.Adapter,
+	device:                 wgpu.Device,
+	queue:                  wgpu.Queue,
+	config:                 wgpu.SurfaceConfiguration,
+
+	// Pipeline
+	shader_module:          wgpu.ShaderModule,
+	pipeline_layout:        wgpu.PipelineLayout,
+	pipeline:               wgpu.RenderPipeline,
+
+	// Bind group for projection + sampler + texture
+	bind_group_layout:      wgpu.BindGroupLayout,
+
+	// Projection uniform buffer
+	projection_buffer:      wgpu.Buffer,
+
+	// Sampler
+	sampler:                wgpu.Sampler,
+
+	// Vertex buffer (GPU side)
+	vertex_buffer:          wgpu.Buffer,
+
+	// CPU-side vertex data for batching
+	vertices:               [BATCH_MAX_VERTICES * VERTEX_FLOATS]f32,
+	vertex_count:           int,
+	vertex_buffer_offset:   int, // running offset into GPU vertex buffer across flushes
+
+	// White 1x1 texture used for solid color drawing
+	white_texture:          core.Texture_Handle,
+
+	// Currently bound texture view for batching
+	current_texture_view:   wgpu.TextureView,
+
+	// Current frame state
+	current_bind_group:     wgpu.BindGroup,
+	current_encoder:        wgpu.CommandEncoder,
+	current_pass:           wgpu.RenderPassEncoder,
+	current_surface_tex:    wgpu.SurfaceTexture,
+	current_view:           wgpu.TextureView,
+	frame_active:           bool,
+
+	// Bind groups created this frame — released after submit, not mid-pass.
+	frame_bind_groups:      [MAX_BIND_GROUPS_PER_FRAME]wgpu.BindGroup,
+	frame_bind_group_count: int,
+
+	// Dimensions
+	width:                  u32,
+	height:                 u32,
+
+	// Initialization state
+	initialized:            bool,
+
+	// Texture handle map
+	textures:               map[core.Texture_Handle]Texture_Entry,
+	next_handle_id:         u64,
+
+	// Stats for the current frame being built, and the last completed frame.
+	current_stats:          Renderer_Stats,
+	last_stats:             Renderer_Stats,
+}
+
+@(private = "file")
+renderer: Renderer
+
+// Returns a Render_Backend vtable populated with the wgpu implementation procs.
+backend :: proc() -> core.Render_Backend {
+	return core.Render_Backend {
+		init = renderer_init,
+		shutdown = renderer_shutdown,
+		resize = renderer_resize,
+		is_initialized = renderer_is_initialized,
+		begin_frame = renderer_begin_frame,
+		present = renderer_present,
+		flush = renderer_flush,
+		push_quad = renderer_push_quad,
+		create_texture = renderer_create_texture,
+		destroy_texture = renderer_destroy_texture,
+		get_white_texture = renderer_get_white_texture,
+		get_stats = renderer_get_stats,
+	}
+}
+
+@(private = "file")
+renderer_init :: proc(window: ^core.Window_Backend, on_initialized: proc()) {
+	renderer.ctx = context
+	renderer.window = window
+	renderer.on_initialized = on_initialized
+	renderer.next_handle_id = 1
+	renderer.textures = make(map[core.Texture_Handle]Texture_Entry)
+
+	renderer.instance = wgpu.CreateInstance(nil)
+	if renderer.instance == nil {
+		panic("[renderer/wgpu] WebGPU is not supported")
+	}
+
+	renderer.surface = window.get_surface(renderer.instance)
+
+	wgpu.InstanceRequestAdapter(
+		renderer.instance,
+		&{compatibleSurface = renderer.surface},
+		{callback = on_adapter},
+	)
+
+	on_adapter :: proc "c" (
+		status: wgpu.RequestAdapterStatus,
+		adapter: wgpu.Adapter,
+		message: string,
+		userdata1, userdata2: rawptr,
+	) {
+		context = renderer.ctx
+		if status != .Success || adapter == nil {
+			fmt.panicf("[renderer/wgpu] request adapter failure: [%v] %s", status, message)
+		}
+		renderer.adapter = adapter
+		wgpu.AdapterRequestDevice(adapter, nil, {callback = on_device})
+	}
+
+	on_device :: proc "c" (
+		status: wgpu.RequestDeviceStatus,
+		device: wgpu.Device,
+		message: string,
+		userdata1, userdata2: rawptr,
+	) {
+		context = renderer.ctx
+		if status != .Success || device == nil {
+			fmt.panicf("[renderer/wgpu] request device failure: [%v] %s", status, message)
+		}
+		renderer.device = device
+		renderer_on_device_ready()
+	}
+}
+
+@(private = "file")
+renderer_on_device_ready :: proc() {
+	r := &renderer
+
+	r.width, r.height = r.window.get_framebuffer_size()
+	r.queue = wgpu.DeviceGetQueue(r.device)
+
+	// Configure surface
+	r.config = wgpu.SurfaceConfiguration {
+		device      = r.device,
+		usage       = {.RenderAttachment},
+		format      = .BGRA8Unorm,
+		width       = r.width,
+		height      = r.height,
+		presentMode = .Fifo,
+		alphaMode   = .Opaque,
+	}
+	wgpu.SurfaceConfigure(r.surface, &r.config)
+
+	// Create shader module
+	r.shader_module = wgpu.DeviceCreateShaderModule(
+		r.device,
+		&{
+			nextInChain = &wgpu.ShaderSourceWGSL {
+				sType = .ShaderSourceWGSL,
+				code = #load("shader.wgsl"),
+			},
+		},
+	)
+
+	// Create sampler
+	r.sampler = wgpu.DeviceCreateSampler(
+		r.device,
+		&{
+			addressModeU = .ClampToEdge,
+			addressModeV = .ClampToEdge,
+			addressModeW = .ClampToEdge,
+			magFilter = .Nearest,
+			minFilter = .Nearest,
+			mipmapFilter = .Nearest,
+			lodMinClamp = 0,
+			lodMaxClamp = 32,
+			compare = .Undefined,
+			maxAnisotropy = 1,
+		},
+	)
+
+	// Create projection uniform buffer
+	r.projection_buffer = wgpu.DeviceCreateBuffer(
+		r.device,
+		&{
+			label = "Projection Uniform Buffer",
+			usage = {.Uniform, .CopyDst},
+			size = size_of(matrix[4, 4]f32),
+		},
+	)
+
+	// Create vertex buffer (GPU side)
+	r.vertex_buffer = wgpu.DeviceCreateBuffer(
+		r.device,
+		&{label = "Vertex Buffer", usage = {.Vertex, .CopyDst}, size = size_of(r.vertices)},
+	)
+
+	// Create bind group layout:
+	//   binding 0: projection matrix (uniform)
+	//   binding 1: sampler
+	//   binding 2: texture
+	r.bind_group_layout = wgpu.DeviceCreateBindGroupLayout(
+		r.device,
+		&{
+			entryCount = 3,
+			entries = raw_data(
+				[]wgpu.BindGroupLayoutEntry {
+					{
+						binding = 0,
+						visibility = {.Vertex},
+						buffer = {type = .Uniform, minBindingSize = size_of(matrix[4, 4]f32)},
+					},
+					{binding = 1, visibility = {.Fragment}, sampler = {type = .Filtering}},
+					{
+						binding = 2,
+						visibility = {.Fragment},
+						texture = {
+							sampleType = .Float,
+							viewDimension = ._2D,
+							multisampled = false,
+						},
+					},
+				},
+			),
+		},
+	)
+
+	// Create pipeline layout
+	r.pipeline_layout = wgpu.DeviceCreatePipelineLayout(
+		r.device,
+		&{bindGroupLayoutCount = 1, bindGroupLayouts = &r.bind_group_layout},
+	)
+
+	// Create render pipeline
+	r.pipeline = wgpu.DeviceCreateRenderPipeline(
+		r.device,
+		&{
+			layout = r.pipeline_layout,
+			vertex = {
+				module      = r.shader_module,
+				entryPoint  = "vs_main",
+				bufferCount = 1,
+				buffers     = &wgpu.VertexBufferLayout {
+					arrayStride    = VERTEX_SIZE,
+					stepMode       = .Vertex,
+					attributeCount = 3,
+					attributes     = raw_data(
+						[]wgpu.VertexAttribute {
+							// position: vec2<f32>
+							{format = .Float32x2, offset = 0, shaderLocation = 0},
+							// texcoord: vec2<f32>
+							{format = .Float32x2, offset = 2 * size_of(f32), shaderLocation = 1},
+							// color: vec4<f32>
+							{format = .Float32x4, offset = 4 * size_of(f32), shaderLocation = 2},
+						},
+					),
+				},
+			},
+			fragment = &{
+				module = r.shader_module,
+				entryPoint = "fs_main",
+				targetCount = 1,
+				targets = &wgpu.ColorTargetState {
+					format = .BGRA8Unorm,
+					blend = &{
+						alpha = {
+							srcFactor = .SrcAlpha,
+							dstFactor = .OneMinusSrcAlpha,
+							operation = .Add,
+						},
+						color = {
+							srcFactor = .SrcAlpha,
+							dstFactor = .OneMinusSrcAlpha,
+							operation = .Add,
+						},
+					},
+					writeMask = wgpu.ColorWriteMaskFlags_All,
+				},
+			},
+			primitive = {topology = .TriangleList, cullMode = .None},
+			multisample = {count = 1, mask = 0xFFFFFFFF},
+		},
+	)
+
+	// Create the 1x1 white texture for solid color drawing
+	white_pixels := [4]u8{255, 255, 255, 255}
+	r.white_texture = renderer_create_texture(white_pixels[:], 1, 1)
+
+	// Upload initial projection
+	renderer_update_projection()
+
+	r.initialized = true
+
+	// Signal that the GPU is ready — the engine uses this to fire the user's init callback.
+	if r.on_initialized != nil {
+		r.on_initialized()
+	}
+}
+
+@(private = "file")
+renderer_update_projection :: proc() {
+	r := &renderer
+	projection := linalg.matrix_ortho3d_f32(0, f32(r.width), f32(r.height), 0, -1, 1)
+	wgpu.QueueWriteBuffer(r.queue, r.projection_buffer, 0, &projection, size_of(projection))
+}
+
+@(private = "file")
+renderer_resize :: proc() {
+	r := &renderer
+	if !r.initialized {
+		return
+	}
+
+	r.width, r.height = r.window.get_framebuffer_size()
+	if r.width == 0 || r.height == 0 {
+		return
+	}
+
+	r.config.width = r.width
+	r.config.height = r.height
+	wgpu.SurfaceConfigure(r.surface, &r.config)
+	renderer_update_projection()
+}
+
+@(private = "file")
+renderer_is_initialized :: proc() -> bool {
+	return renderer.initialized
+}
+
+// Begin a new frame, clearing the screen with the given color.
+@(private = "file")
+renderer_begin_frame :: proc(color: core.Color) -> bool {
+	r := &renderer
+	if !r.initialized {
+		return false
+	}
+
+	r.vertex_count = 0
+	r.vertex_buffer_offset = 0
+	r.current_texture_view = nil
+	r.current_bind_group = nil
+	r.frame_bind_group_count = 0
+
+	// Reset per-frame stats, carrying over resource counts.
+	r.current_stats = {
+		textures_alive = r.current_stats.textures_alive,
+		texture_memory = r.current_stats.texture_memory,
+	}
+
+	r.current_surface_tex = wgpu.SurfaceGetCurrentTexture(r.surface)
+	switch r.current_surface_tex.status {
+	case .SuccessOptimal, .SuccessSuboptimal:
+	// All good.
+	case .Timeout, .Outdated, .Lost:
+		if r.current_surface_tex.texture != nil {
+			wgpu.TextureRelease(r.current_surface_tex.texture)
+		}
+		renderer_resize()
+		return false
+	case .OutOfMemory, .DeviceLost, .Error:
+		fmt.panicf("[renderer/wgpu] get_current_texture status=%v", r.current_surface_tex.status)
+	}
+
+	r.current_view = wgpu.TextureCreateView(r.current_surface_tex.texture, nil)
+	r.current_encoder = wgpu.DeviceCreateCommandEncoder(r.device, nil)
+
+	cf := color_to_f64(color)
+
+	r.current_pass = wgpu.CommandEncoderBeginRenderPass(
+		r.current_encoder,
+		&{
+			colorAttachmentCount = 1,
+			colorAttachments = &wgpu.RenderPassColorAttachment {
+				view = r.current_view,
+				loadOp = .Clear,
+				storeOp = .Store,
+				depthSlice = wgpu.DEPTH_SLICE_UNDEFINED,
+				clearValue = {cf[0], cf[1], cf[2], cf[3]},
+			},
+		},
+	)
+
+	r.frame_active = true
+	return true
+}
+
+// Flush all batched vertices to the GPU and draw them.
+@(private = "file")
+renderer_flush :: proc() {
+	r := &renderer
+	if r.vertex_count == 0 || !r.frame_active {
+		return
+	}
+
+	// Upload vertex data at the current offset into the GPU buffer.
+	data_size := uint(r.vertex_count * VERTEX_FLOATS * size_of(f32))
+	gpu_offset := uint(r.vertex_buffer_offset * VERTEX_FLOATS * size_of(f32))
+	wgpu.QueueWriteBuffer(r.queue, r.vertex_buffer, u64(gpu_offset), &r.vertices, data_size)
+
+	// Set up the pass
+	wgpu.RenderPassEncoderSetPipeline(r.current_pass, r.pipeline)
+	if r.current_bind_group != nil {
+		wgpu.RenderPassEncoderSetBindGroup(r.current_pass, 0, r.current_bind_group)
+	}
+	wgpu.RenderPassEncoderSetVertexBuffer(
+		r.current_pass,
+		0,
+		r.vertex_buffer,
+		u64(gpu_offset),
+		u64(data_size),
+	)
+	wgpu.RenderPassEncoderDraw(r.current_pass, u32(r.vertex_count), 1, 0, 0)
+
+	r.current_stats.draw_calls += 1
+	r.current_stats.vertices += r.vertex_count
+	r.current_stats.quads += r.vertex_count / 6
+
+	r.vertex_buffer_offset += r.vertex_count
+	r.vertex_count = 0
+}
+
+// End the current frame: flush, end render pass, submit, present.
+@(private = "file")
+renderer_present :: proc() {
+	r := &renderer
+	if !r.frame_active {
+		return
+	}
+
+	renderer_flush()
+
+	wgpu.RenderPassEncoderEnd(r.current_pass)
+	wgpu.RenderPassEncoderRelease(r.current_pass)
+
+	command_buffer := wgpu.CommandEncoderFinish(r.current_encoder, nil)
+	wgpu.QueueSubmit(r.queue, {command_buffer})
+
+	wgpu.CommandBufferRelease(command_buffer)
+	wgpu.CommandEncoderRelease(r.current_encoder)
+
+	wgpu.SurfacePresent(r.surface)
+
+	wgpu.TextureViewRelease(r.current_view)
+	wgpu.TextureRelease(r.current_surface_tex.texture)
+
+	// Release all bind groups created this frame now that the GPU is done with them.
+	for i in 0 ..< r.frame_bind_group_count {
+		wgpu.BindGroupRelease(r.frame_bind_groups[i])
+	}
+	r.frame_bind_group_count = 0
+	r.current_bind_group = nil
+
+	// Snapshot stats for the completed frame.
+	r.last_stats = r.current_stats
+
+	r.frame_active = false
+}
+
+// Push a textured quad into the batch.
+@(private = "file")
+renderer_push_quad :: proc(
+	dst: core.Rect,
+	src_uv: [4][2]f32,
+	tex_handle: core.Texture_Handle,
+	color: core.Color,
+) {
+	r := &renderer
+	if !r.frame_active {
+		return
+	}
+
+	entry, ok := &r.textures[tex_handle]
+	if !ok {
+		return
+	}
+
+	// If the texture changed, flush the current batch and rebind.
+	if r.current_texture_view != entry.view {
+		renderer_flush()
+		r.current_texture_view = entry.view
+		renderer_bind_texture(entry.view)
+		r.current_stats.texture_switches += 1
+	}
+
+	// If the batch is full, flush.
+	if r.vertex_count + 6 > BATCH_MAX_VERTICES {
+		renderer_flush()
+	}
+
+	cr, cg, cb, ca :=
+		f32(color[0]) / 255.0, f32(color[1]) / 255.0, f32(color[2]) / 255.0, f32(color[3]) / 255.0
+
+	x := dst.x
+	y := dst.y
+	w := dst.w
+	h := dst.h
+
+	// Two triangles forming a quad:
+	// Triangle 1: top-left, top-right, bottom-right
+	// Triangle 2: top-left, bottom-right, bottom-left
+
+	// Top-left
+	push_vertex(r, x, y, src_uv[0][0], src_uv[0][1], cr, cg, cb, ca)
+	// Top-right
+	push_vertex(r, x + w, y, src_uv[1][0], src_uv[1][1], cr, cg, cb, ca)
+	// Bottom-right
+	push_vertex(r, x + w, y + h, src_uv[2][0], src_uv[2][1], cr, cg, cb, ca)
+	// Top-left
+	push_vertex(r, x, y, src_uv[0][0], src_uv[0][1], cr, cg, cb, ca)
+	// Bottom-right
+	push_vertex(r, x + w, y + h, src_uv[2][0], src_uv[2][1], cr, cg, cb, ca)
+	// Bottom-left
+	push_vertex(r, x, y + h, src_uv[3][0], src_uv[3][1], cr, cg, cb, ca)
+}
+
+@(private = "file")
+push_vertex :: proc(r: ^Renderer, px, py, u, v, cr, cg, cb, ca: f32) {
+	base := r.vertex_count * VERTEX_FLOATS
+	r.vertices[base + 0] = px
+	r.vertices[base + 1] = py
+	r.vertices[base + 2] = u
+	r.vertices[base + 3] = v
+	r.vertices[base + 4] = cr
+	r.vertices[base + 5] = cg
+	r.vertices[base + 6] = cb
+	r.vertices[base + 7] = ca
+	r.vertex_count += 1
+}
+
+@(private = "file")
+renderer_bind_texture :: proc(tex_view: wgpu.TextureView) {
+	r := &renderer
+
+	r.current_bind_group = wgpu.DeviceCreateBindGroup(
+		r.device,
+		&{
+			layout = r.bind_group_layout,
+			entryCount = 3,
+			entries = raw_data(
+				[]wgpu.BindGroupEntry {
+					{binding = 0, buffer = r.projection_buffer, size = size_of(matrix[4, 4]f32)},
+					{binding = 1, sampler = r.sampler},
+					{binding = 2, textureView = tex_view},
+				},
+			),
+		},
+	)
+
+	// Track for deferred release after frame submit.
+	assert(
+		r.frame_bind_group_count < MAX_BIND_GROUPS_PER_FRAME,
+		"Too many texture switches in one frame",
+	)
+	r.frame_bind_groups[r.frame_bind_group_count] = r.current_bind_group
+	r.frame_bind_group_count += 1
+}
+
+// Allocate a new texture handle.
+@(private = "file")
+alloc_handle :: proc() -> core.Texture_Handle {
+	handle := core.Texture_Handle(renderer.next_handle_id)
+	renderer.next_handle_id += 1
+	return handle
+}
+
+// Create a texture from raw RGBA pixel data.
+@(private = "file")
+renderer_create_texture :: proc(data: []u8, width, height: int) -> core.Texture_Handle {
+	r := &renderer
+
+	tex := wgpu.DeviceCreateTexture(
+		r.device,
+		&{
+			usage = {.TextureBinding, .CopyDst},
+			dimension = ._2D,
+			size = {u32(width), u32(height), 1},
+			format = .RGBA8Unorm,
+			mipLevelCount = 1,
+			sampleCount = 1,
+		},
+	)
+
+	tex_view := wgpu.TextureCreateView(tex, nil)
+
+	// Upload pixel data
+	wgpu.QueueWriteTexture(
+		r.queue,
+		&{texture = tex},
+		raw_data(data),
+		uint(len(data)),
+		&{bytesPerRow = u32(width) * 4, rowsPerImage = u32(height)},
+		&{u32(width), u32(height), 1},
+	)
+
+	r.current_stats.textures_alive += 1
+	r.current_stats.texture_memory += width * height * 4
+
+	handle := alloc_handle()
+	r.textures[handle] = Texture_Entry {
+		handle = tex,
+		view   = tex_view,
+		width  = width,
+		height = height,
+	}
+
+	return handle
+}
+
+@(private = "file")
+renderer_destroy_texture :: proc(handle: core.Texture_Handle) {
+	r := &renderer
+
+	entry, ok := &r.textures[handle]
+	if !ok {
+		return
+	}
+
+	r.current_stats.textures_alive -= 1
+	r.current_stats.texture_memory -= entry.width * entry.height * 4
+
+	if entry.view != nil {
+		wgpu.TextureViewRelease(entry.view)
+	}
+	if entry.handle != nil {
+		wgpu.TextureRelease(entry.handle)
+	}
+
+	delete_key(&r.textures, handle)
+}
+
+@(private = "file")
+renderer_get_white_texture :: proc() -> core.Texture_Handle {
+	return renderer.white_texture
+}
+
+@(private = "file")
+renderer_shutdown :: proc() {
+	r := &renderer
+	if !r.initialized {
+		return
+	}
+
+	// Destroy the white texture through the handle system.
+	renderer_destroy_texture(r.white_texture)
+
+	// Destroy any remaining textures.
+	for handle in r.textures {
+		entry := &r.textures[handle]
+		if entry.view != nil {
+			wgpu.TextureViewRelease(entry.view)
+		}
+		if entry.handle != nil {
+			wgpu.TextureRelease(entry.handle)
+		}
+	}
+	delete(r.textures)
+
+	if r.vertex_buffer != nil {wgpu.BufferRelease(r.vertex_buffer)}
+	if r.projection_buffer != nil {wgpu.BufferRelease(r.projection_buffer)}
+	if r.sampler != nil {wgpu.SamplerRelease(r.sampler)}
+	if r.current_bind_group != nil {wgpu.BindGroupRelease(r.current_bind_group)}
+	if r.bind_group_layout != nil {wgpu.BindGroupLayoutRelease(r.bind_group_layout)}
+	if r.pipeline != nil {wgpu.RenderPipelineRelease(r.pipeline)}
+	if r.pipeline_layout != nil {wgpu.PipelineLayoutRelease(r.pipeline_layout)}
+	if r.shader_module != nil {wgpu.ShaderModuleRelease(r.shader_module)}
+	if r.queue != nil {wgpu.QueueRelease(r.queue)}
+	if r.device != nil {wgpu.DeviceRelease(r.device)}
+	if r.adapter != nil {wgpu.AdapterRelease(r.adapter)}
+	if r.surface != nil {wgpu.SurfaceRelease(r.surface)}
+	if r.instance != nil {wgpu.InstanceRelease(r.instance)}
+
+	r.initialized = false
+}
+
+@(private = "file")
+renderer_get_stats :: proc(frame_time: f32) -> core.Stats {
+	s := renderer.last_stats
+	return core.Stats {
+		frame_time_ms = frame_time * 1000.0,
+		fps = frame_time > 0 ? 1.0 / frame_time : 0,
+		draw_calls = s.draw_calls,
+		quads = s.quads,
+		vertices = s.vertices,
+		texture_switches = s.texture_switches,
+		textures_alive = s.textures_alive,
+		texture_memory = s.texture_memory,
+	}
+}
+
+// Helper to convert Color ([4]u8) to [4]f64 for wgpu clear values.
+@(private = "file")
+color_to_f64 :: proc(c: core.Color) -> [4]f64 {
+	return {f64(c[0]) / 255.0, f64(c[1]) / 255.0, f64(c[2]) / 255.0, f64(c[3]) / 255.0}
+}
