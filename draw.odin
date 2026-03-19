@@ -5,6 +5,7 @@ import "core:image"
 import _ "core:image/bmp"
 import _ "core:image/png"
 import _ "core:image/tga"
+import "core:math"
 
 // Clear the screen with a solid color. Call once at the start of each frame's drawing.
 clear :: proc(color: Color) {
@@ -22,6 +23,45 @@ draw_rect :: proc(r: Rect, color: Color) {
 	// Full UV rect for the 1x1 white texture
 	uv := [4][2]f32{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
 	ctx.renderer.push_quad(r, uv, white, color)
+}
+
+// Draw the outline of a rectangle with a given thickness.
+draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
+	// Top edge
+	draw_rect({r.x, r.y, r.w, thickness}, color)
+	// Bottom edge
+	draw_rect({r.x, r.y + r.h - thickness, r.w, thickness}, color)
+	// Left edge (between top and bottom)
+	draw_rect({r.x, r.y + thickness, thickness, r.h - thickness * 2}, color)
+	// Right edge (between top and bottom)
+	draw_rect({r.x + r.w - thickness, r.y + thickness, thickness, r.h - thickness * 2}, color)
+}
+
+// Draw a line between two points with a given thickness.
+draw_line :: proc(from: Vec2, to: Vec2, thickness: f32, color: Color) {
+	dx := to.x - from.x
+	dy := to.y - from.y
+	length := math.sqrt(dx * dx + dy * dy)
+	if length < 0.001 {
+		return
+	}
+
+	// Perpendicular unit vector scaled by half thickness.
+	nx := (-dy / length) * thickness * 0.5
+	ny := (dx / length) * thickness * 0.5
+
+	// Four corners of the line quad.
+	// p0--p1
+	// |    |
+	// p3--p2
+	p0 := Vec2{from.x + nx, from.y + ny}
+	p1 := Vec2{to.x + nx, to.y + ny}
+	p2 := Vec2{to.x - nx, to.y - ny}
+	p3 := Vec2{from.x - nx, from.y - ny}
+
+	white := ctx.renderer.get_white_texture()
+	uv := [4][2]f32{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
+	ctx.renderer.push_quad_ex({p0, p1, p2, p3}, uv, white, color)
 }
 
 // Draw a texture at the given position with an optional tint.

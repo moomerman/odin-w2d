@@ -116,6 +116,14 @@ Render_Backend :: struct {
 	// Push a textured quad into the current batch.
 	push_quad:         proc(dst: Rect, src_uv: [4][2]f32, tex: Texture_Handle, color: Color),
 
+	// Push a textured quad with explicit vertex positions (for rotated/arbitrary quads).
+	push_quad_ex:      proc(
+		positions: [4]Vec2,
+		src_uv: [4][2]f32,
+		tex: Texture_Handle,
+		color: Color,
+	),
+
 	// Create a texture from raw RGBA8 pixel data. Returns an opaque handle.
 	create_texture:    proc(data: []u8, width, height: int) -> Texture_Handle,
 

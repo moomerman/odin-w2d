@@ -65,9 +65,9 @@ init :: proc(width: int, height: int, title: string) {
 // On desktop this runs a blocking loop. On web it stores the callbacks and
 // returns immediately — the wasm runtime drives frames via the exported `step`
 // procedure.
-run :: proc(init_proc: proc(), frame: proc(dt: f32), shutdown_proc: proc()) {
+run :: proc(init_proc: proc(), frame_proc: proc(dt: f32), shutdown_proc: proc()) {
 	ctx.init_proc = init_proc
-	ctx.frame_proc = frame
+	ctx.frame_proc = frame_proc
 	ctx.shutdown_proc = shutdown_proc
 	ctx.init_called = false
 

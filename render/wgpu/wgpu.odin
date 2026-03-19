@@ -129,6 +129,7 @@ backend :: proc() -> core.Render_Backend {
 		present = renderer_present,
 		flush = renderer_flush,
 		push_quad = renderer_push_quad,
+		push_quad_ex = renderer_push_quad_ex,
 		create_texture = renderer_create_texture,
 		destroy_texture = renderer_destroy_texture,
 		get_white_texture = renderer_get_white_texture,
@@ -565,6 +566,47 @@ renderer_push_quad :: proc(
 	push_vertex(r, x + w, y + h, src_uv[2][0], src_uv[2][1], cr, cg, cb, ca)
 	// Bottom-left
 	push_vertex(r, x, y + h, src_uv[3][0], src_uv[3][1], cr, cg, cb, ca)
+}
+
+// Push a quad with explicit vertex positions (for rotated/arbitrary quads).
+@(private = "file")
+renderer_push_quad_ex :: proc(
+	positions: [4]core.Vec2,
+	src_uv: [4][2]f32,
+	tex_handle: core.Texture_Handle,
+	color: core.Color,
+) {
+	r := &renderer
+	if !r.frame_active {
+		return
+	}
+
+	entry, ok := &r.textures[tex_handle]
+	if !ok {
+		return
+	}
+
+	if r.current_texture_view != entry.view {
+		renderer_flush()
+		r.current_texture_view = entry.view
+		renderer_bind_texture(entry.view)
+		r.current_stats.texture_switches += 1
+	}
+
+	if r.vertex_count + 6 > BATCH_MAX_VERTICES {
+		renderer_flush()
+	}
+
+	cr, cg, cb, ca :=
+		f32(color[0]) / 255.0, f32(color[1]) / 255.0, f32(color[2]) / 255.0, f32(color[3]) / 255.0
+
+	// Two triangles: 0-1-2, 0-2-3
+	push_vertex(r, positions[0].x, positions[0].y, src_uv[0][0], src_uv[0][1], cr, cg, cb, ca)
+	push_vertex(r, positions[1].x, positions[1].y, src_uv[1][0], src_uv[1][1], cr, cg, cb, ca)
+	push_vertex(r, positions[2].x, positions[2].y, src_uv[2][0], src_uv[2][1], cr, cg, cb, ca)
+	push_vertex(r, positions[0].x, positions[0].y, src_uv[0][0], src_uv[0][1], cr, cg, cb, ca)
+	push_vertex(r, positions[2].x, positions[2].y, src_uv[2][0], src_uv[2][1], cr, cg, cb, ca)
+	push_vertex(r, positions[3].x, positions[3].y, src_uv[3][0], src_uv[3][1], cr, cg, cb, ca)
 }
 
 @(private = "file")
