@@ -20,6 +20,9 @@ sdl3_should_quit: bool
 @(private = "file")
 sdl3_on_resize: proc()
 
+@(private = "file")
+sdl3_events: [dynamic]core.Event
+
 // Returns a Window_Backend vtable for SDL3.
 backend :: proc() -> core.Window_Backend {
 	return core.Window_Backend {
@@ -28,6 +31,7 @@ backend :: proc() -> core.Window_Backend {
 		poll_events = sdl3_poll_events,
 		get_surface = sdl3_get_surface,
 		get_framebuffer_size = sdl3_get_framebuffer_size,
+		get_events = sdl3_get_events,
 	}
 }
 
@@ -71,6 +75,38 @@ sdl3_poll_events :: proc() -> bool {
 			if sdl3_on_resize != nil {
 				sdl3_on_resize()
 			}
+		case .MOUSE_MOTION:
+			append(
+				&sdl3_events,
+				core.Event(
+					core.Mouse_Move_Event {
+						pos = {e.motion.x, e.motion.y},
+						delta = {e.motion.xrel, e.motion.yrel},
+					},
+				),
+			)
+		case .MOUSE_BUTTON_DOWN, .MOUSE_BUTTON_UP:
+			btn: core.Mouse_Button
+			switch e.button.button {
+			case 1:
+				btn = .Left
+			case 2:
+				btn = .Middle
+			case 3:
+				btn = .Right
+			case:
+				continue
+			}
+			append(
+				&sdl3_events,
+				core.Event(
+					core.Mouse_Button_Event {
+						button = btn,
+						down = e.type == .MOUSE_BUTTON_DOWN,
+						pos = {e.button.x, e.button.y},
+					},
+				),
+			)
 		}
 	}
 	return !sdl3_should_quit
@@ -79,6 +115,13 @@ sdl3_poll_events :: proc() -> bool {
 @(private = "file")
 sdl3_get_surface :: proc(instance: wgpu.Instance) -> wgpu.Surface {
 	return sdl3glue.GetSurface(instance, sdl3_window)
+}
+
+@(private = "file")
+sdl3_get_events :: proc() -> []core.Event {
+	events := sdl3_events[:]
+	clear(&sdl3_events)
+	return events
 }
 
 @(private = "file")

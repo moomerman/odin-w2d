@@ -5,6 +5,32 @@ package core
 
 import "vendor:wgpu"
 
+//----------//
+// INPUT    //
+//----------//
+
+Mouse_Button :: enum {
+	Left,
+	Right,
+	Middle,
+}
+
+Event :: union {
+	Mouse_Move_Event,
+	Mouse_Button_Event,
+}
+
+Mouse_Move_Event :: struct {
+	pos:   Vec2,
+	delta: Vec2,
+}
+
+Mouse_Button_Event :: struct {
+	button: Mouse_Button,
+	down:   bool, // true = pressed, false = released
+	pos:    Vec2,
+}
+
 // Opaque handle to a texture managed by the render backend.
 // The backend maps this to its internal GPU resources.
 Texture_Handle :: distinct u64
@@ -55,6 +81,9 @@ Window_Backend :: struct {
 
 	// Get the framebuffer size in physical pixels.
 	get_framebuffer_size: proc() -> (width: u32, height: u32),
+
+	// Return buffered input events since the last call, then clear the buffer.
+	get_events:           proc() -> []Event,
 }
 
 // Render_Backend abstracts over different rendering implementations.

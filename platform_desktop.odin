@@ -8,6 +8,7 @@ package engine
 platform_run :: proc() {
 	for ctx.window.poll_events() {
 		if ctx.renderer.is_initialized() && ctx.frame_proc != nil {
+			process_input()
 			calculate_frame_time()
 			ctx.frame_proc(ctx.frame_time)
 		}

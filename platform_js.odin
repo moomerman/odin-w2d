@@ -26,6 +26,7 @@ step :: proc(dt: f32) -> bool {
 	}
 
 	if ctx.init_called && ctx.frame_proc != nil {
+		process_input()
 		calculate_frame_time()
 		ctx.frame_proc(ctx.frame_time)
 	}
