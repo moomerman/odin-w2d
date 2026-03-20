@@ -131,6 +131,8 @@ backend :: proc() -> core.Render_Backend {
 		push_quad = renderer_push_quad,
 		push_quad_ex = renderer_push_quad_ex,
 		create_texture = renderer_create_texture,
+		create_texture_empty = renderer_create_texture_empty,
+		update_texture = renderer_update_texture,
 		destroy_texture = renderer_destroy_texture,
 		get_white_texture = renderer_get_white_texture,
 		get_stats = renderer_get_stats,
@@ -700,6 +702,59 @@ renderer_create_texture :: proc(data: []u8, width, height: int) -> core.Texture_
 	}
 
 	return handle
+}
+
+// Create an empty texture (no initial pixel data). Used for atlases filled on demand.
+@(private = "file")
+renderer_create_texture_empty :: proc(width, height: int) -> core.Texture_Handle {
+	r := &renderer
+
+	tex := wgpu.DeviceCreateTexture(
+		r.device,
+		&{
+			usage = {.TextureBinding, .CopyDst},
+			dimension = ._2D,
+			size = {u32(width), u32(height), 1},
+			format = .RGBA8Unorm,
+			mipLevelCount = 1,
+			sampleCount = 1,
+		},
+	)
+
+	tex_view := wgpu.TextureCreateView(tex, nil)
+
+	r.current_stats.textures_alive += 1
+	r.current_stats.texture_memory += width * height * 4
+
+	handle := alloc_handle()
+	r.textures[handle] = Texture_Entry {
+		handle = tex,
+		view   = tex_view,
+		width  = width,
+		height = height,
+	}
+
+	return handle
+}
+
+// Update a sub-region of an existing texture with new RGBA8 pixel data.
+@(private = "file")
+renderer_update_texture :: proc(handle: core.Texture_Handle, data: []u8, x, y, width, height: int) {
+	r := &renderer
+
+	entry, ok := &r.textures[handle]
+	if !ok {
+		return
+	}
+
+	wgpu.QueueWriteTexture(
+		r.queue,
+		&{texture = entry.handle, origin = {u32(x), u32(y), 0}},
+		raw_data(data),
+		uint(len(data)),
+		&{bytesPerRow = u32(width) * 4, rowsPerImage = u32(height)},
+		&{u32(width), u32(height), 1},
+	)
 }
 
 @(private = "file")

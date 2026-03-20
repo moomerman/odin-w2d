@@ -8,6 +8,7 @@ Texture_Handle :: core.Texture_Handle
 Mouse_Button :: core.Mouse_Button
 Key :: core.Key
 
+Font :: core.Font
 Vec2 :: core.Vec2
 Rect :: core.Rect
 Color :: core.Color

@@ -100,6 +100,9 @@ Key_Event :: struct {
 // The backend maps this to its internal GPU resources.
 Texture_Handle :: distinct u64
 
+// Opaque handle to a loaded font. Index 0 is reserved as invalid.
+Font :: distinct int
+
 Vec2 :: [2]f32
 
 Rect :: struct {
@@ -191,6 +194,12 @@ Render_Backend :: struct {
 
 	// Create a texture from raw RGBA8 pixel data. Returns an opaque handle.
 	create_texture:    proc(data: []u8, width, height: int) -> Texture_Handle,
+
+	// Create an empty texture (no initial pixel data). Used for atlases filled on demand.
+	create_texture_empty: proc(width, height: int) -> Texture_Handle,
+
+	// Update a sub-region of an existing texture with new RGBA8 pixel data.
+	update_texture:    proc(handle: Texture_Handle, data: []u8, x, y, width, height: int),
 
 	// Destroy a texture and free its GPU resources.
 	destroy_texture:   proc(handle: Texture_Handle),

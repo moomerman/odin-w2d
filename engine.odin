@@ -101,6 +101,8 @@ get_stats :: proc() -> Stats {
 // asynchronously once the adapter/device callbacks complete.
 @(private = "package")
 on_renderer_initialized :: proc() {
+	text_init()
+
 	if ctx.init_proc != nil {
 		ctx.init_proc()
 	}
@@ -118,6 +120,7 @@ on_window_resize :: proc() {
 // Shut down the engine. Called internally after the user's shutdown_proc.
 @(private = "package")
 engine_shutdown :: proc() {
+	text_shutdown()
 	ctx.renderer.shutdown()
 	ctx.window.shutdown()
 	ctx.initialized = false
