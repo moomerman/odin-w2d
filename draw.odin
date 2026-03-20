@@ -110,6 +110,48 @@ load_texture :: proc(bytes: []u8, width: int = 0, height: int = 0) -> Texture {
 	return Texture{handle = handle, width = img.width, height = img.height}
 }
 
+@(private = "file")
+STATS_UPDATE_INTERVAL :: 0.5 // seconds between stats text refreshes
+
+@(private = "file")
+stats_text_buf: [256]u8
+
+@(private = "file")
+stats_text: string
+
+@(private = "file")
+stats_timer: f32 = STATS_UPDATE_INTERVAL // start expired so first frame updates immediately
+
+// Draw a debug status bar at the bottom of the screen showing FPS, frame time, and draw calls.
+draw_stats :: proc() {
+	stats_timer += ctx.frame_time
+	if stats_timer >= STATS_UPDATE_INTERVAL {
+		stats_timer = 0
+		stats := get_stats()
+		n := fmt.bprintf(
+			stats_text_buf[:],
+			"FPS: %.0f  |  Frame: %.1fms  |  Draw calls: %d  |  Quads: %d  |  Textures: %d",
+			stats.fps,
+			stats.frame_time_ms,
+			stats.draw_calls,
+			stats.quads,
+			stats.textures_alive,
+		)
+		stats_text = string(stats_text_buf[:len(n)])
+	}
+
+	w, h := ctx.window.get_framebuffer_size()
+	screen_w := f32(w)
+	screen_h := f32(h)
+
+	font_size: f32 = 16
+	padding: f32 = 6
+	bar_height := font_size + padding * 2
+
+	draw_rect({0, screen_h - bar_height, screen_w, bar_height}, {0, 0, 0, 120})
+	draw_text(stats_text, {padding + 14, screen_h - bar_height + padding}, font_size, LIGHT_GRAY)
+}
+
 // Destroy a texture and free its GPU resources.
 destroy_texture :: proc(tex: ^Texture) {
 	ctx.renderer.destroy_texture(tex.handle)

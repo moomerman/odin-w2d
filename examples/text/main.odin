@@ -8,7 +8,11 @@ main :: proc() {
 	w.run(init, frame, shutdown)
 }
 
-init :: proc() {}
+mono: w.Font
+
+init :: proc() {
+	mono = w.load_font(#load("BerkeleyMono-Regular.ttf"))
+}
 
 frame :: proc(dt: f32) {
 	w.clear(w.DARK_GRAY)
@@ -24,6 +28,10 @@ frame :: proc(dt: f32) {
 	w.draw_text("Blue text", {50, 320}, 32, w.BLUE)
 	w.draw_text("Yellow text", {50, 370}, 32, w.YELLOW)
 
+	// Custom font
+	w.draw_text_ex(mono, "Berkeley Mono at 24px", {650, 220}, 24, w.LIGHT_GRAY)
+	w.draw_text_ex(mono, "Custom fonts work too!", {650, 260}, 20, w.LIGHT_BLUE)
+
 	// Measure text for positioning
 	label := "Centered text"
 	size := w.measure_text(label, 32)
@@ -38,6 +46,9 @@ frame :: proc(dt: f32) {
 	// Outlined text
 	w.draw_text_outlined("Outlined text!", {50, 580}, 48, w.WHITE, w.BLACK)
 	w.draw_text_outlined("Thick outline", {50, 640}, 36, w.YELLOW, w.DARK_RED, 2)
+
+	// Stats bar
+	w.draw_stats()
 
 	w.present()
 }
