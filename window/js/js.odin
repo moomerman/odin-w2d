@@ -33,6 +33,9 @@ js_init :: proc(width, height: int, title: string, on_resize: proc()) {
 	js.add_event_listener("wgpu-canvas", .Mouse_Move, nil, js_mouse_move_callback)
 	js.add_event_listener("wgpu-canvas", .Mouse_Down, nil, js_mouse_button_callback)
 	js.add_event_listener("wgpu-canvas", .Mouse_Up, nil, js_mouse_button_callback)
+
+	js.add_window_event_listener(.Key_Down, nil, js_key_callback)
+	js.add_window_event_listener(.Key_Up, nil, js_key_callback)
 }
 
 @(private = "file")
@@ -42,6 +45,9 @@ js_shutdown :: proc() {
 	js.remove_event_listener("wgpu-canvas", .Mouse_Move, nil, js_mouse_move_callback)
 	js.remove_event_listener("wgpu-canvas", .Mouse_Down, nil, js_mouse_button_callback)
 	js.remove_event_listener("wgpu-canvas", .Mouse_Up, nil, js_mouse_button_callback)
+
+	js.remove_window_event_listener(.Key_Down, nil, js_key_callback)
+	js.remove_window_event_listener(.Key_Up, nil, js_key_callback)
 }
 
 @(private = "file")
@@ -119,4 +125,194 @@ js_mouse_button_callback :: proc(e: js.Event) {
 			},
 		),
 	)
+}
+
+@(private = "file")
+js_key_callback :: proc(e: js.Event) {
+	key, ok := js_code_to_key(e.key.code)
+	if !ok do return
+	append(
+		&js_events,
+		core.Event(core.Key_Event{key = key, down = e.kind == .Key_Down, repeat = e.key.repeat}),
+	)
+}
+
+@(private = "file")
+js_code_to_key :: proc(code: string) -> (core.Key, bool) {
+	// Map DOM KeyboardEvent.code strings to our Key enum.
+	switch code {
+	// Letters
+	case "KeyA":
+		return .A, true
+	case "KeyB":
+		return .B, true
+	case "KeyC":
+		return .C, true
+	case "KeyD":
+		return .D, true
+	case "KeyE":
+		return .E, true
+	case "KeyF":
+		return .F, true
+	case "KeyG":
+		return .G, true
+	case "KeyH":
+		return .H, true
+	case "KeyI":
+		return .I, true
+	case "KeyJ":
+		return .J, true
+	case "KeyK":
+		return .K, true
+	case "KeyL":
+		return .L, true
+	case "KeyM":
+		return .M, true
+	case "KeyN":
+		return .N, true
+	case "KeyO":
+		return .O, true
+	case "KeyP":
+		return .P, true
+	case "KeyQ":
+		return .Q, true
+	case "KeyR":
+		return .R, true
+	case "KeyS":
+		return .S, true
+	case "KeyT":
+		return .T, true
+	case "KeyU":
+		return .U, true
+	case "KeyV":
+		return .V, true
+	case "KeyW":
+		return .W, true
+	case "KeyX":
+		return .X, true
+	case "KeyY":
+		return .Y, true
+	case "KeyZ":
+		return .Z, true
+	// Digits
+	case "Digit1":
+		return .Key_1, true
+	case "Digit2":
+		return .Key_2, true
+	case "Digit3":
+		return .Key_3, true
+	case "Digit4":
+		return .Key_4, true
+	case "Digit5":
+		return .Key_5, true
+	case "Digit6":
+		return .Key_6, true
+	case "Digit7":
+		return .Key_7, true
+	case "Digit8":
+		return .Key_8, true
+	case "Digit9":
+		return .Key_9, true
+	case "Digit0":
+		return .Key_0, true
+	// Common keys
+	case "Enter":
+		return .Return, true
+	case "Escape":
+		return .Escape, true
+	case "Backspace":
+		return .Backspace, true
+	case "Tab":
+		return .Tab, true
+	case "Space":
+		return .Space, true
+	// Punctuation
+	case "Minus":
+		return .Minus, true
+	case "Equal":
+		return .Equals, true
+	case "BracketLeft":
+		return .Left_Bracket, true
+	case "BracketRight":
+		return .Right_Bracket, true
+	case "Backslash":
+		return .Backslash, true
+	case "Semicolon":
+		return .Semicolon, true
+	case "Quote":
+		return .Apostrophe, true
+	case "Backquote":
+		return .Grave, true
+	case "Comma":
+		return .Comma, true
+	case "Period":
+		return .Period, true
+	case "Slash":
+		return .Slash, true
+	// Function keys
+	case "F1":
+		return .F1, true
+	case "F2":
+		return .F2, true
+	case "F3":
+		return .F3, true
+	case "F4":
+		return .F4, true
+	case "F5":
+		return .F5, true
+	case "F6":
+		return .F6, true
+	case "F7":
+		return .F7, true
+	case "F8":
+		return .F8, true
+	case "F9":
+		return .F9, true
+	case "F10":
+		return .F10, true
+	case "F11":
+		return .F11, true
+	case "F12":
+		return .F12, true
+	// Navigation
+	case "Insert":
+		return .Insert, true
+	case "Home":
+		return .Home, true
+	case "PageUp":
+		return .Page_Up, true
+	case "Delete":
+		return .Delete, true
+	case "End":
+		return .End, true
+	case "PageDown":
+		return .Page_Down, true
+	// Arrows
+	case "ArrowRight":
+		return .Right, true
+	case "ArrowLeft":
+		return .Left, true
+	case "ArrowDown":
+		return .Down, true
+	case "ArrowUp":
+		return .Up, true
+	// Modifiers
+	case "ControlLeft":
+		return .Left_Ctrl, true
+	case "ShiftLeft":
+		return .Left_Shift, true
+	case "AltLeft":
+		return .Left_Alt, true
+	case "MetaLeft":
+		return .Left_Super, true
+	case "ControlRight":
+		return .Right_Ctrl, true
+	case "ShiftRight":
+		return .Right_Shift, true
+	case "AltRight":
+		return .Right_Alt, true
+	case "MetaRight":
+		return .Right_Super, true
+	}
+	return {}, false
 }

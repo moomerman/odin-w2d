@@ -107,6 +107,17 @@ sdl3_poll_events :: proc() -> bool {
 					},
 				),
 			)
+		case .KEY_DOWN, .KEY_UP:
+			// SDL scancodes map directly to our Key enum values.
+			sc := u16(e.key.scancode)
+			if sc == 0 || sc > u16(max(core.Key)) {
+				continue
+			}
+			key := core.Key(sc)
+			append(
+				&sdl3_events,
+				core.Event(core.Key_Event{key = key, down = e.key.down, repeat = e.key.repeat}),
+			)
 		}
 	}
 	return !sdl3_should_quit

@@ -2,9 +2,11 @@ package engine
 
 import "core"
 
-// Number of mouse buttons we track.
 @(private = "file")
 MOUSE_BUTTON_COUNT :: len(core.Mouse_Button)
+
+@(private = "file")
+KEY_COUNT :: int(max(core.Key)) + 1
 
 @(private = "package")
 Input_State :: struct {
@@ -13,6 +15,9 @@ Input_State :: struct {
 	mouse_held:      [MOUSE_BUTTON_COUNT]bool,
 	mouse_went_down: [MOUSE_BUTTON_COUNT]bool,
 	mouse_went_up:   [MOUSE_BUTTON_COUNT]bool,
+	key_held:        [KEY_COUNT]bool,
+	key_went_down:   [KEY_COUNT]bool,
+	key_went_up:     [KEY_COUNT]bool,
 }
 
 @(private = "package")
@@ -26,6 +31,8 @@ process_input :: proc() {
 	input.mouse_delta = {}
 	input.mouse_went_down = {}
 	input.mouse_went_up = {}
+	input.key_went_down = {}
+	input.key_went_up = {}
 
 	// Drain events from the window backend.
 	for event in ctx.window.get_events() {
@@ -42,6 +49,17 @@ process_input :: proc() {
 			} else {
 				input.mouse_held[btn] = false
 				input.mouse_went_up[btn] = true
+			}
+		case core.Key_Event:
+			k := int(e.key)
+			if e.down {
+				if !e.repeat {
+					input.key_went_down[k] = true
+				}
+				input.key_held[k] = true
+			} else {
+				input.key_held[k] = false
+				input.key_went_up[k] = true
 			}
 		}
 	}
@@ -74,4 +92,19 @@ mouse_button_went_up :: proc(button: Mouse_Button) -> bool {
 // Returns true if the mouse button is currently held down.
 mouse_button_is_held :: proc(button: Mouse_Button) -> bool {
 	return input.mouse_held[int(button)]
+}
+
+// Returns true if the key was pressed this frame (ignores repeats).
+key_went_down :: proc(key: Key) -> bool {
+	return input.key_went_down[int(key)]
+}
+
+// Returns true if the key was released this frame.
+key_went_up :: proc(key: Key) -> bool {
+	return input.key_went_up[int(key)]
+}
+
+// Returns true if the key is currently held down.
+key_is_held :: proc(key: Key) -> bool {
+	return input.key_held[int(key)]
 }

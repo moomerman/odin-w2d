@@ -6,6 +6,7 @@ Window_Backend :: core.Window_Backend
 Render_Backend :: core.Render_Backend
 Texture_Handle :: core.Texture_Handle
 Mouse_Button :: core.Mouse_Button
+Key :: core.Key
 
 Vec2 :: core.Vec2
 Rect :: core.Rect
