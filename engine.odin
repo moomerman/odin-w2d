@@ -12,6 +12,7 @@ import "backend"
 Context :: struct {
 	window:          Window_Backend,
 	renderer:        Render_Backend,
+	audio:           Audio_Backend,
 	initialized:     bool,
 	init_proc:       proc(),
 	frame_proc:      proc(dt: f32),
@@ -38,6 +39,7 @@ init :: proc(width: int, height: int, title: string) {
 	defaults := backend.default()
 	ctx.window = defaults.window
 	ctx.renderer = defaults.renderer
+	ctx.audio = defaults.audio
 
 	ctx.window.init(width, height, title, on_window_resize)
 
@@ -120,6 +122,9 @@ on_window_resize :: proc() {
 // Shut down the engine. Called internally after the user's shutdown_proc.
 @(private = "package")
 engine_shutdown :: proc() {
+	if ctx.audio.shutdown != nil {
+		ctx.audio.shutdown()
+	}
 	text_shutdown()
 	ctx.renderer.shutdown()
 	ctx.window.shutdown()

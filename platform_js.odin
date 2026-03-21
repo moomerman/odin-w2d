@@ -28,6 +28,9 @@ step :: proc(dt: f32) -> bool {
 	if ctx.init_called && ctx.frame_proc != nil {
 		process_input()
 		calculate_frame_time()
+		if ctx.audio.update != nil {
+			ctx.audio.update()
+		}
 		ctx.frame_proc(ctx.frame_time)
 	}
 

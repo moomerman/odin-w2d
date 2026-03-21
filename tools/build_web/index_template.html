@@ -19,6 +19,7 @@
 
         <script type="text/javascript" src="odin.js"></script>
         <script type="text/javascript" src="wgpu.js"></script>
+        <script type="text/javascript" src="audio_webaudio.js"></script>
         <script type="text/javascript">
             const mem = new WebAssembly.Memory({
                 initial: 2000,
@@ -30,10 +31,21 @@
 
             const wgpuInterface = new odin.WebGPUInterface(memInterface)
 
+            // Wire audio WASM memory so JS can read audio data from WASM heap
+            if (window.setAudioWasmMemory) {
+                window.setAudioWasmMemory(mem)
+            }
+
+            // Merge audio JS imports alongside wgpu imports
+            const extraImports = { wgpu: wgpuInterface.getInterface() }
+            if (window.audioJsImports) {
+                Object.assign(extraImports, window.audioJsImports)
+            }
+
             odin.runWasm(
                 "{{WASM_FILENAME}}",
                 null,
-                { wgpu: wgpuInterface.getInterface() },
+                extraImports,
                 memInterface,
             )
         </script>

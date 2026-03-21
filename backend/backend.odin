@@ -8,4 +8,5 @@ import core "../core"
 Backends :: struct {
 	window:   core.Window_Backend,
 	renderer: core.Render_Backend,
+	audio:    core.Audio_Backend,
 }

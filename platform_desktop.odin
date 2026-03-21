@@ -10,6 +10,9 @@ platform_run :: proc() {
 		if ctx.renderer.is_initialized() && ctx.frame_proc != nil {
 			process_input()
 			calculate_frame_time()
+			if ctx.audio.update != nil {
+				ctx.audio.update()
+			}
 			ctx.frame_proc(ctx.frame_time)
 		}
 	}

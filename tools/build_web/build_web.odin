@@ -114,6 +114,13 @@ main :: proc() {
 	os.copy_file(path_join({bin_web_dir, "wgpu.js"}), wgpu_js_path)
 	fmt.printfln("Copied wgpu.js")
 
+	// Copy audio_webaudio.js
+	audio_js_path := path_join({wgpu_dir, "audio", "webaudio", "audio_webaudio.js"})
+	if os.exists(audio_js_path) {
+		os.copy_file(path_join({bin_web_dir, "audio_webaudio.js"}), audio_js_path)
+		fmt.printfln("Copied audio_webaudio.js")
+	}
+
 	// Build the wasm.
 	INITIAL_MEMORY_PAGES :: 2000
 	MAX_MEMORY_PAGES :: 65536

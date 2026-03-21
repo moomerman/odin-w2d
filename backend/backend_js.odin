@@ -3,9 +3,10 @@
 
 package backend
 
+import "../audio/webaudio"
 import "../render/wgpu"
 import "../window/js"
 
 default :: proc() -> Backends {
-	return Backends{window = js.backend(), renderer = wgpu.backend()}
+	return Backends{window = js.backend(), renderer = wgpu.backend(), audio = webaudio.backend()}
 }
