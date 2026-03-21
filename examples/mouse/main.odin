@@ -80,15 +80,15 @@ frame :: proc(dt: f32) {
 			for x in 0 ..< 16 {
 				i := (y * 16 + x) * 4
 				if x >= 6 && x <= 9 && y >= 6 && y <= 9 {
-					pixels[i] = 255     // R
-					pixels[i + 1] = 0   // G
-					pixels[i + 2] = 0   // B
+					pixels[i] = 255 // R
+					pixels[i + 1] = 0 // G
+					pixels[i + 2] = 0 // B
 				} else {
-					pixels[i] = 255     // R
+					pixels[i] = 255 // R
 					pixels[i + 1] = 255 // G
 					pixels[i + 2] = 255 // B
 				}
-				pixels[i + 3] = 255     // A
+				pixels[i + 3] = 255 // A
 			}
 		}
 		w.set_custom_cursor(pixels[:], 16, 16, 8, 8)

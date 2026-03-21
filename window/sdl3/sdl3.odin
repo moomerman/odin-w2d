@@ -63,6 +63,7 @@ sdl3_init :: proc(width, height: int, title: string, on_resize: proc()) {
 
 @(private = "file")
 sdl3_shutdown :: proc() {
+	delete(sdl3_events)
 	if sdl3_current_cursor != nil {
 		SDL.DestroyCursor(sdl3_current_cursor)
 		sdl3_current_cursor = nil

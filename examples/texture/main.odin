@@ -7,8 +7,14 @@ import w "../.."
 
 checkerboard: w.Texture
 logo: w.Texture
+import ta "../../tools/tracking_allocator"
 
 main :: proc() {
+	context.allocator = ta.init()
+	defer {
+		ta.print()
+		ta.destroy()
+	}
 	w.init(1280, 720, "Texture Example")
 	w.run(init, frame, shutdown)
 }
@@ -31,6 +37,7 @@ frame :: proc(dt: f32) {
 		w.Rect{200, 500, 256, 256},
 	)
 
+	w.draw_stats()
 	w.present()
 }
 

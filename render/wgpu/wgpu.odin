@@ -496,6 +496,7 @@ renderer_present :: proc() {
 	wgpu.CommandEncoderRelease(r.current_encoder)
 
 	wgpu.SurfacePresent(r.surface)
+	wgpu.DevicePoll(r.device, false, nil)
 
 	wgpu.TextureViewRelease(r.current_view)
 	wgpu.TextureRelease(r.current_surface_tex.texture)
