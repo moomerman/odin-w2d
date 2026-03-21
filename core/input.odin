@@ -1,5 +1,18 @@
 package core
 
+System_Cursor :: enum {
+	Default,
+	Text,
+	Crosshair,
+	Pointer,
+	Resize_EW,
+	Resize_NS,
+	Resize_NWSE,
+	Resize_NESW,
+	Move,
+	Not_Allowed,
+}
+
 Mouse_Button :: enum {
 	Left,
 	Right,

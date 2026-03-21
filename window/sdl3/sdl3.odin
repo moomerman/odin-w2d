@@ -23,6 +23,9 @@ sdl3_on_resize: proc()
 @(private = "file")
 sdl3_events: [dynamic]core.Event
 
+@(private = "file")
+sdl3_current_cursor: ^SDL.Cursor
+
 // Returns a Window_Backend vtable for SDL3.
 backend :: proc() -> core.Window_Backend {
 	return core.Window_Backend {
@@ -32,6 +35,9 @@ backend :: proc() -> core.Window_Backend {
 		get_surface = sdl3_get_surface,
 		get_framebuffer_size = sdl3_get_framebuffer_size,
 		get_events = sdl3_get_events,
+		set_cursor_visible = sdl3_set_cursor_visible,
+		set_system_cursor = sdl3_set_system_cursor,
+		set_custom_cursor = sdl3_set_custom_cursor,
 	}
 }
 
@@ -57,6 +63,10 @@ sdl3_init :: proc(width, height: int, title: string, on_resize: proc()) {
 
 @(private = "file")
 sdl3_shutdown :: proc() {
+	if sdl3_current_cursor != nil {
+		SDL.DestroyCursor(sdl3_current_cursor)
+		sdl3_current_cursor = nil
+	}
 	if sdl3_window != nil {
 		SDL.DestroyWindow(sdl3_window)
 		sdl3_window = nil
@@ -140,4 +150,63 @@ sdl3_get_framebuffer_size :: proc() -> (width: u32, height: u32) {
 	w, h: i32
 	SDL.GetWindowSizeInPixels(sdl3_window, &w, &h)
 	return u32(w), u32(h)
+}
+
+@(private = "file")
+sdl3_set_cursor_visible :: proc(visible: bool) {
+	if visible {
+		_ = SDL.ShowCursor()
+	} else {
+		_ = SDL.HideCursor()
+	}
+}
+
+@(private = "file")
+sdl3_set_system_cursor :: proc(cursor: core.System_Cursor) {
+	sdl_cursor: SDL.SystemCursor
+	switch cursor {
+	case .Default:     sdl_cursor = .DEFAULT
+	case .Text:        sdl_cursor = .TEXT
+	case .Crosshair:   sdl_cursor = .CROSSHAIR
+	case .Pointer:     sdl_cursor = .POINTER
+	case .Resize_EW:   sdl_cursor = .EW_RESIZE
+	case .Resize_NS:   sdl_cursor = .NS_RESIZE
+	case .Resize_NWSE: sdl_cursor = .NWSE_RESIZE
+	case .Resize_NESW: sdl_cursor = .NESW_RESIZE
+	case .Move:        sdl_cursor = .MOVE
+	case .Not_Allowed: sdl_cursor = .NOT_ALLOWED
+	}
+	new_cursor := SDL.CreateSystemCursor(sdl_cursor)
+	if new_cursor != nil {
+		_ = SDL.SetCursor(new_cursor)
+		if sdl3_current_cursor != nil {
+			SDL.DestroyCursor(sdl3_current_cursor)
+		}
+		sdl3_current_cursor = new_cursor
+	}
+}
+
+@(private = "file")
+sdl3_set_custom_cursor :: proc(pixels: []u8, width, height, hot_x, hot_y: int) {
+	surface := SDL.CreateSurfaceFrom(
+		i32(width), i32(height),
+		.RGBA32,
+		raw_data(pixels),
+		i32(width * 4),
+	)
+	if surface == nil {
+		fmt.eprintf("SDL.CreateSurfaceFrom error: %s\n", SDL.GetError())
+		return
+	}
+	new_cursor := SDL.CreateColorCursor(surface, i32(hot_x), i32(hot_y))
+	SDL.DestroySurface(surface)
+	if new_cursor == nil {
+		fmt.eprintf("SDL.CreateColorCursor error: %s\n", SDL.GetError())
+		return
+	}
+	_ = SDL.SetCursor(new_cursor)
+	if sdl3_current_cursor != nil {
+		SDL.DestroyCursor(sdl3_current_cursor)
+	}
+	sdl3_current_cursor = new_cursor
 }

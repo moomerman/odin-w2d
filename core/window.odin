@@ -24,4 +24,9 @@ Window_Backend :: struct {
 
 	// Return buffered input events since the last call, then clear the buffer.
 	get_events:           proc() -> []Event,
+
+	// Cursor control.
+	set_cursor_visible:   proc(visible: bool),
+	set_system_cursor:    proc(cursor: System_Cursor),
+	set_custom_cursor:    proc(pixels: []u8, width, height, hot_x, hot_y: int),
 }

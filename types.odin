@@ -8,6 +8,7 @@ Audio_Backend :: core.Audio_Backend
 Texture_Handle :: core.Texture_Handle
 Mouse_Button :: core.Mouse_Button
 Key :: core.Key
+System_Cursor :: core.System_Cursor
 
 Font :: core.Font
 Vec2 :: core.Vec2
