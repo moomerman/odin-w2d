@@ -152,6 +152,11 @@ draw_stats :: proc() {
 	draw_text(stats_text, {padding + 14, screen_h - bar_height + padding}, font_size, LIGHT_GRAY)
 }
 
+// Update a sub-region of an existing texture with new RGBA8 pixel data.
+update_texture :: proc(tex: Texture, data: []u8, x, y, width, height: int) {
+	ctx.renderer.update_texture(tex.handle, data, x, y, width, height)
+}
+
 // Destroy a texture and free its GPU resources.
 destroy_texture :: proc(tex: ^Texture) {
 	ctx.renderer.destroy_texture(tex.handle)

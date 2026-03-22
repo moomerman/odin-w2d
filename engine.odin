@@ -93,6 +93,12 @@ get_time :: proc() -> f64 {
 	return ctx.elapsed_time
 }
 
+// Get the current screen size (drawable area) in pixels.
+get_screen_size :: proc() -> (int, int) {
+	w, h := ctx.window.get_framebuffer_size()
+	return int(w), int(h)
+}
+
 // Returns rendering statistics for the most recently completed frame.
 get_stats :: proc() -> Stats {
 	return ctx.renderer.get_stats(ctx.frame_time)
