@@ -12,7 +12,9 @@ import core "../../core"
 @(private = "file")
 BATCH_MAX_QUADS :: 4096
 @(private = "file")
-BATCH_MAX_VERTICES :: BATCH_MAX_QUADS * 6
+BATCH_MAX_VERTICES :: BATCH_MAX_QUADS * 4
+@(private = "file")
+BATCH_MAX_INDICES :: BATCH_MAX_QUADS * 6
 
 // Vertex layout: position (2 floats) + texcoord (2 floats) + color (4 floats) = 8 floats = 32 bytes
 @(private = "file")
@@ -76,6 +78,9 @@ Renderer :: struct {
 
 	// Vertex buffer (GPU side)
 	vertex_buffer:          wgpu.Buffer,
+
+	// Index buffer (GPU side, static — generated once at init)
+	index_buffer:           wgpu.Buffer,
 
 	// CPU-side vertex data for batching
 	vertices:               [BATCH_MAX_VERTICES * VERTEX_FLOATS]f32,
@@ -260,6 +265,26 @@ renderer_on_device_ready :: proc() {
 		r.device,
 		&{label = "Vertex Buffer", usage = {.Vertex, .CopyDst}, size = size_of(r.vertices)},
 	)
+
+	// Create static index buffer — pattern repeats for every quad: 0,1,2, 0,2,3, 4,5,6, 4,6,7, ...
+	{
+		indices: [BATCH_MAX_INDICES]u16
+		for i in 0 ..< BATCH_MAX_QUADS {
+			base := u16(i * 4)
+			off := i * 6
+			indices[off + 0] = base + 0
+			indices[off + 1] = base + 1
+			indices[off + 2] = base + 2
+			indices[off + 3] = base + 0
+			indices[off + 4] = base + 2
+			indices[off + 5] = base + 3
+		}
+		r.index_buffer = wgpu.DeviceCreateBuffer(
+			r.device,
+			&{label = "Index Buffer", usage = {.Index, .CopyDst}, size = size_of(indices)},
+		)
+		wgpu.QueueWriteBuffer(r.queue, r.index_buffer, 0, &indices, size_of(indices))
+	}
 
 	// Create bind group layout:
 	//   binding 0: projection matrix (uniform)
@@ -501,11 +526,25 @@ renderer_flush :: proc() {
 		u64(gpu_offset),
 		u64(data_size),
 	)
-	wgpu.RenderPassEncoderDraw(r.current_pass, u32(r.vertex_count), 1, 0, 0)
+
+	// Bind the static index buffer and draw indexed.
+	// Each quad uses 4 vertices but 6 indices (two triangles).
+	// The vertex buffer binding already offsets to the start of this batch,
+	// so indices always start from 0.
+	quad_count := r.vertex_count / 4
+	index_count := u32(quad_count * 6)
+	wgpu.RenderPassEncoderSetIndexBuffer(
+		r.current_pass,
+		r.index_buffer,
+		.Uint16,
+		0,
+		u64(BATCH_MAX_INDICES * size_of(u16)),
+	)
+	wgpu.RenderPassEncoderDrawIndexed(r.current_pass, index_count, 1, 0, 0, 0)
 
 	r.current_stats.draw_calls += 1
 	r.current_stats.vertices += r.vertex_count
-	r.current_stats.quads += r.vertex_count / 6
+	r.current_stats.quads += quad_count
 
 	r.vertex_buffer_offset += r.vertex_count
 	r.vertex_count = 0
@@ -578,7 +617,7 @@ renderer_push_quad :: proc(
 	}
 
 	// If the batch is full, flush.
-	if r.vertex_count + 6 > BATCH_MAX_VERTICES {
+	if r.vertex_count + 4 > BATCH_MAX_VERTICES {
 		renderer_flush()
 	}
 
@@ -590,22 +629,11 @@ renderer_push_quad :: proc(
 	w := dst.w
 	h := dst.h
 
-	// Two triangles forming a quad:
-	// Triangle 1: top-left, top-right, bottom-right
-	// Triangle 2: top-left, bottom-right, bottom-left
-
-	// Top-left
-	push_vertex(r, x, y, src_uv[0][0], src_uv[0][1], cr, cg, cb, ca)
-	// Top-right
-	push_vertex(r, x + w, y, src_uv[1][0], src_uv[1][1], cr, cg, cb, ca)
-	// Bottom-right
-	push_vertex(r, x + w, y + h, src_uv[2][0], src_uv[2][1], cr, cg, cb, ca)
-	// Top-left
-	push_vertex(r, x, y, src_uv[0][0], src_uv[0][1], cr, cg, cb, ca)
-	// Bottom-right
-	push_vertex(r, x + w, y + h, src_uv[2][0], src_uv[2][1], cr, cg, cb, ca)
-	// Bottom-left
-	push_vertex(r, x, y + h, src_uv[3][0], src_uv[3][1], cr, cg, cb, ca)
+	// Four unique vertices per quad; the index buffer provides triangle connectivity.
+	push_vertex(r, x, y, src_uv[0][0], src_uv[0][1], cr, cg, cb, ca)         // 0: top-left
+	push_vertex(r, x + w, y, src_uv[1][0], src_uv[1][1], cr, cg, cb, ca)     // 1: top-right
+	push_vertex(r, x + w, y + h, src_uv[2][0], src_uv[2][1], cr, cg, cb, ca) // 2: bottom-right
+	push_vertex(r, x, y + h, src_uv[3][0], src_uv[3][1], cr, cg, cb, ca)     // 3: bottom-left
 }
 
 // Push a quad with explicit vertex positions (for rotated/arbitrary quads).
@@ -633,18 +661,16 @@ renderer_push_quad_ex :: proc(
 		r.current_stats.texture_switches += 1
 	}
 
-	if r.vertex_count + 6 > BATCH_MAX_VERTICES {
+	if r.vertex_count + 4 > BATCH_MAX_VERTICES {
 		renderer_flush()
 	}
 
 	cr, cg, cb, ca :=
 		f32(color[0]) / 255.0, f32(color[1]) / 255.0, f32(color[2]) / 255.0, f32(color[3]) / 255.0
 
-	// Two triangles: 0-1-2, 0-2-3
+	// Four unique vertices per quad; the index buffer provides triangle connectivity.
 	push_vertex(r, positions[0].x, positions[0].y, src_uv[0][0], src_uv[0][1], cr, cg, cb, ca)
 	push_vertex(r, positions[1].x, positions[1].y, src_uv[1][0], src_uv[1][1], cr, cg, cb, ca)
-	push_vertex(r, positions[2].x, positions[2].y, src_uv[2][0], src_uv[2][1], cr, cg, cb, ca)
-	push_vertex(r, positions[0].x, positions[0].y, src_uv[0][0], src_uv[0][1], cr, cg, cb, ca)
 	push_vertex(r, positions[2].x, positions[2].y, src_uv[2][0], src_uv[2][1], cr, cg, cb, ca)
 	push_vertex(r, positions[3].x, positions[3].y, src_uv[3][0], src_uv[3][1], cr, cg, cb, ca)
 }
@@ -849,6 +875,7 @@ renderer_shutdown :: proc() {
 	delete(r.textures)
 
 	if r.vertex_buffer != nil {wgpu.BufferRelease(r.vertex_buffer)}
+	if r.index_buffer != nil {wgpu.BufferRelease(r.index_buffer)}
 	if r.projection_buffer != nil {wgpu.BufferRelease(r.projection_buffer)}
 	if r.sampler != nil {wgpu.SamplerRelease(r.sampler)}
 	if r.current_bind_group != nil {wgpu.BindGroupRelease(r.current_bind_group)}
