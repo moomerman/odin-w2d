@@ -6,6 +6,7 @@
 
 package window_darwin
 
+import "base:intrinsics"
 import "base:runtime"
 
 import NS "core:sys/darwin/Foundation"
@@ -43,6 +44,12 @@ prev_modifier_flags: NS.EventModifierFlags
 
 @(private = "file")
 odin_ctx: runtime.Context
+
+@(private = "file")
+cursor_hidden: bool
+
+@(private = "file")
+current_custom_cursor: ^NS.Cursor
 
 backend :: proc() -> core.Window_Backend {
 	return core.Window_Backend {
@@ -296,17 +303,83 @@ native_get_events :: proc() -> []core.Event {
 
 @(private = "file")
 native_set_cursor_visible :: proc(visible: bool) {
-	// Stub — can be implemented with NSCursor later
+	if visible && cursor_hidden {
+		NS.Cursor_unhide()
+		cursor_hidden = false
+	} else if !visible && !cursor_hidden {
+		NS.Cursor_hide()
+		cursor_hidden = true
+	}
 }
 
 @(private = "file")
 native_set_system_cursor :: proc(cursor: core.System_Cursor) {
-	// Stub — can be implemented with NSCursor later
+	ns_cursor: ^NS.Cursor
+	switch cursor {
+	case .Default:
+		ns_cursor = NS.Cursor_arrowCursor()
+	case .Text:
+		ns_cursor = NS.Cursor_IBeamCursor()
+	case .Pointer:
+		ns_cursor = NS.Cursor_pointingHandCursor()
+	case .Crosshair:
+		ns_cursor = intrinsics.objc_send(^NS.Cursor, NS.Cursor, "crosshairCursor")
+	case .Resize_EW:
+		ns_cursor = intrinsics.objc_send(^NS.Cursor, NS.Cursor, "resizeLeftRightCursor")
+	case .Resize_NS:
+		ns_cursor = intrinsics.objc_send(^NS.Cursor, NS.Cursor, "resizeUpDownCursor")
+	case .Resize_NWSE:
+		// Private Apple selector; falls back to arrow if unavailable.
+		ns_cursor = intrinsics.objc_send(^NS.Cursor, NS.Cursor, "_windowResizeNorthWestSouthEastCursor")
+		if ns_cursor == nil do ns_cursor = NS.Cursor_arrowCursor()
+	case .Resize_NESW:
+		ns_cursor = intrinsics.objc_send(^NS.Cursor, NS.Cursor, "_windowResizeNorthEastSouthWestCursor")
+		if ns_cursor == nil do ns_cursor = NS.Cursor_arrowCursor()
+	case .Move:
+		ns_cursor = intrinsics.objc_send(^NS.Cursor, NS.Cursor, "openHandCursor")
+	case .Not_Allowed:
+		ns_cursor = intrinsics.objc_send(^NS.Cursor, NS.Cursor, "operationNotAllowedCursor")
+	}
+	if ns_cursor != nil {
+		ns_cursor->set()
+	}
 }
 
 @(private = "file")
 native_set_custom_cursor :: proc(pixels: []u8, w, h, hot_x, hot_y: int) {
-	// Stub — can be implemented with NSCursor later
+	if len(pixels) < w * h * 4 do return
+
+	planes := [?]^u8{raw_data(pixels)}
+
+	rep := NS.BitmapImageRep_alloc()->initWithBitmapDataPlanes(
+		&planes[0],
+		NS.Integer(w),
+		NS.Integer(h),
+		8,  // bits per sample
+		4,  // samples per pixel (RGBA)
+		true,  // has alpha
+		false, // is planar
+		NS.AT("NSDeviceRGBColorSpace"),
+		NS.Integer(w * 4), // bytes per row
+		32, // bits per pixel
+	)
+	if rep == nil do return
+	defer rep->release()
+
+	image := NS.Image_alloc()->initWithSize({NS.Float(w), NS.Float(h)})
+	image->addRepresentation((^NS.ImageRep)(rep))
+
+	new_cursor := NS.Cursor_alloc()->initWithImage(image, {NS.Float(hot_x), NS.Float(hot_y)})
+	image->release()
+
+	if new_cursor != nil {
+		new_cursor->set()
+		// Release the previous custom cursor.
+		if current_custom_cursor != nil {
+			current_custom_cursor->release()
+		}
+		current_custom_cursor = new_cursor
+	}
 }
 
 // --- Helpers ---
