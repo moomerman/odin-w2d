@@ -496,7 +496,9 @@ renderer_present :: proc() {
 	wgpu.CommandEncoderRelease(r.current_encoder)
 
 	wgpu.SurfacePresent(r.surface)
-	wgpu.DevicePoll(r.device, false, nil)
+	when ODIN_ARCH != .wasm32 && ODIN_ARCH != .wasm64p32 {
+		wgpu.DevicePoll(r.device, false, nil)
+	}
 
 	wgpu.TextureViewRelease(r.current_view)
 	wgpu.TextureRelease(r.current_surface_tex.texture)
@@ -740,7 +742,11 @@ renderer_create_texture_empty :: proc(width, height: int) -> core.Texture_Handle
 
 // Update a sub-region of an existing texture with new RGBA8 pixel data.
 @(private = "file")
-renderer_update_texture :: proc(handle: core.Texture_Handle, data: []u8, x, y, width, height: int) {
+renderer_update_texture :: proc(
+	handle: core.Texture_Handle,
+	data: []u8,
+	x, y, width, height: int,
+) {
 	r := &renderer
 
 	entry, ok := &r.textures[handle]
