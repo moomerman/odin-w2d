@@ -3,6 +3,7 @@ package renderer_wgpu
 import "base:runtime"
 import "core:fmt"
 import "core:math/linalg"
+import "core:strings"
 import "vendor:wgpu"
 
 import core "../../core"
@@ -113,6 +114,9 @@ Renderer :: struct {
 	// Stats for the current frame being built, and the last completed frame.
 	current_stats:          Renderer_Stats,
 	last_stats:             Renderer_Stats,
+
+	// Active custom shader (nil = default pipeline).
+	active_shader:          ^core.Shader,
 }
 
 @(private = "file")
@@ -136,6 +140,11 @@ backend :: proc() -> core.Render_Backend {
 		destroy_texture = renderer_destroy_texture,
 		get_white_texture = renderer_get_white_texture,
 		get_stats = renderer_get_stats,
+		load_shader = renderer_load_shader,
+		set_shader_uniform = renderer_set_shader_uniform,
+		set_shader = renderer_set_shader,
+		reset_shader = renderer_reset_shader,
+		destroy_shader = renderer_destroy_shader,
 	}
 }
 
@@ -397,6 +406,7 @@ renderer_begin_frame :: proc(color: core.Color) -> bool {
 	r.current_texture_view = nil
 	r.current_bind_group = nil
 	r.frame_bind_group_count = 0
+	r.active_shader = nil
 
 	// Reset per-frame stats, carrying over resource counts.
 	r.current_stats = {
@@ -454,11 +464,36 @@ renderer_flush :: proc() {
 	gpu_offset := uint(r.vertex_buffer_offset * VERTEX_FLOATS * size_of(f32))
 	wgpu.QueueWriteBuffer(r.queue, r.vertex_buffer, u64(gpu_offset), &r.vertices, data_size)
 
-	// Set up the pass
-	wgpu.RenderPassEncoderSetPipeline(r.current_pass, r.pipeline)
-	if r.current_bind_group != nil {
-		wgpu.RenderPassEncoderSetBindGroup(r.current_pass, 0, r.current_bind_group)
+	// Use the custom shader pipeline if active, otherwise the default.
+	if r.active_shader != nil {
+		shader := r.active_shader
+
+		// Upload dirty uniforms
+		if shader.uniform_dirty && shader.uniform_buffer != nil {
+			wgpu.QueueWriteBuffer(
+				r.queue,
+				shader.uniform_buffer,
+				0,
+				raw_data(shader.uniform_data),
+				uint(shader.uniform_size),
+			)
+			shader.uniform_dirty = false
+		}
+
+		wgpu.RenderPassEncoderSetPipeline(r.current_pass, shader.pipeline)
+		if r.current_bind_group != nil {
+			wgpu.RenderPassEncoderSetBindGroup(r.current_pass, 0, r.current_bind_group)
+		}
+		if shader.bind_group != nil {
+			wgpu.RenderPassEncoderSetBindGroup(r.current_pass, 1, shader.bind_group)
+		}
+	} else {
+		wgpu.RenderPassEncoderSetPipeline(r.current_pass, r.pipeline)
+		if r.current_bind_group != nil {
+			wgpu.RenderPassEncoderSetBindGroup(r.current_pass, 0, r.current_bind_group)
+		}
 	}
+
 	wgpu.RenderPassEncoderSetVertexBuffer(
 		r.current_pass,
 		0,
@@ -843,6 +878,257 @@ renderer_get_stats :: proc(frame_time: f32) -> core.Stats {
 		textures_alive = s.textures_alive,
 		texture_memory = s.texture_memory,
 	}
+}
+
+// --- Custom Shader API ---
+
+@(private = "file")
+renderer_load_shader :: proc(wgsl_source: string) -> core.Shader {
+	r := &renderer
+	shader: core.Shader
+
+	// Parse WGSL to extract metadata
+	parse := parse_wgsl(wgsl_source)
+	defer destroy_parse_result(&parse)
+
+	// Create shader module
+	shader.module = wgpu.DeviceCreateShaderModule(
+		r.device,
+		&{
+			nextInChain = &wgpu.ShaderSourceWGSL {
+				sType = .ShaderSourceWGSL,
+				code = wgsl_source,
+			},
+		},
+	)
+
+	// Store entry points
+	shader.vertex_entry = strings.clone(
+		len(parse.vertex_entry) > 0 ? parse.vertex_entry : "vs_main",
+	)
+	shader.fragment_entry = strings.clone(
+		len(parse.fragment_entry) > 0 ? parse.fragment_entry : "fs_main",
+	)
+
+	// Find group 1 uniform binding and compute layout
+	uniform_struct_name: string
+	for &b in parse.bindings {
+		if b.group == 1 && b.type == "uniform" {
+			uniform_struct_name = b.type_name
+			break
+		}
+	}
+
+	// Build uniform metadata from the struct
+	if len(uniform_struct_name) > 0 {
+		s := find_struct(&parse.structs, uniform_struct_name)
+		if s != nil {
+			shader.uniform_size = s.size
+			shader.uniforms = make(map[string]core.Shader_Uniform)
+
+			for &field in s.fields {
+				uniform_type: core.Shader_Uniform_Type
+				#partial switch field.type {
+				case .F32:       uniform_type = .F32
+				case .I32:       uniform_type = .I32
+				case .U32:       uniform_type = .U32
+				case .Vec2F32:   uniform_type = .Vec2F32
+				case .Vec3F32:   uniform_type = .Vec3F32
+				case .Vec4F32:   uniform_type = .Vec4F32
+				case .Mat4x4F32: uniform_type = .Mat4x4F32
+				}
+				shader.uniforms[strings.clone(field.name)] = core.Shader_Uniform {
+					offset = field.offset,
+					size   = field.size,
+					type   = uniform_type,
+				}
+			}
+		}
+	}
+
+	// Create bind group layout for group 1 (user uniforms)
+	if shader.uniform_size > 0 {
+		shader.bind_group_layout = wgpu.DeviceCreateBindGroupLayout(
+			r.device,
+			&{
+				entryCount = 1,
+				entries = &wgpu.BindGroupLayoutEntry {
+					binding = 0,
+					visibility = {.Vertex, .Fragment},
+					buffer = {type = .Uniform, minBindingSize = u64(shader.uniform_size)},
+				},
+			},
+		)
+
+		// Create uniform buffer
+		// Round up to 16 bytes for WebGPU minimum buffer size
+		buf_size := u64(align_up(shader.uniform_size, 16))
+		shader.uniform_buffer = wgpu.DeviceCreateBuffer(
+			r.device,
+			&{
+				label = "Custom Shader Uniform Buffer",
+				usage = {.Uniform, .CopyDst},
+				size = buf_size,
+			},
+		)
+
+		// Create CPU staging buffer
+		shader.uniform_data = make([]u8, shader.uniform_size)
+
+		// Create bind group
+		shader.bind_group = wgpu.DeviceCreateBindGroup(
+			r.device,
+			&{
+				layout = shader.bind_group_layout,
+				entryCount = 1,
+				entries = &wgpu.BindGroupEntry {
+					binding = 0,
+					buffer = shader.uniform_buffer,
+					size = u64(shader.uniform_size),
+				},
+			},
+		)
+	}
+
+	// Create pipeline layout: [engine group 0, user group 1]
+	if shader.bind_group_layout != nil {
+		layouts := [2]wgpu.BindGroupLayout{r.bind_group_layout, shader.bind_group_layout}
+		shader.pipeline_layout = wgpu.DeviceCreatePipelineLayout(
+			r.device,
+			&{bindGroupLayoutCount = 2, bindGroupLayouts = &layouts[0]},
+		)
+	} else {
+		// No user uniforms — still need a pipeline with just group 0
+		shader.pipeline_layout = wgpu.DeviceCreatePipelineLayout(
+			r.device,
+			&{bindGroupLayoutCount = 1, bindGroupLayouts = &r.bind_group_layout},
+		)
+	}
+
+	// Create render pipeline (same vertex layout as default)
+	shader.pipeline = wgpu.DeviceCreateRenderPipeline(
+		r.device,
+		&{
+			layout = shader.pipeline_layout,
+			vertex = {
+				module      = shader.module,
+				entryPoint  = shader.vertex_entry,
+				bufferCount = 1,
+				buffers     = &wgpu.VertexBufferLayout {
+					arrayStride    = VERTEX_SIZE,
+					stepMode       = .Vertex,
+					attributeCount = 3,
+					attributes     = raw_data(
+						[]wgpu.VertexAttribute {
+							{format = .Float32x2, offset = 0, shaderLocation = 0},
+							{format = .Float32x2, offset = 2 * size_of(f32), shaderLocation = 1},
+							{format = .Float32x4, offset = 4 * size_of(f32), shaderLocation = 2},
+						},
+					),
+				},
+			},
+			fragment = &{
+				module = shader.module,
+				entryPoint = shader.fragment_entry,
+				targetCount = 1,
+				targets = &wgpu.ColorTargetState {
+					format = .BGRA8Unorm,
+					blend = &{
+						alpha = {
+							srcFactor = .SrcAlpha,
+							dstFactor = .OneMinusSrcAlpha,
+							operation = .Add,
+						},
+						color = {
+							srcFactor = .SrcAlpha,
+							dstFactor = .OneMinusSrcAlpha,
+							operation = .Add,
+						},
+					},
+					writeMask = wgpu.ColorWriteMaskFlags_All,
+				},
+			},
+			primitive = {topology = .TriangleList, cullMode = .None},
+			multisample = {count = 1, mask = 0xFFFFFFFF},
+		},
+	)
+
+	return shader
+}
+
+@(private = "file")
+renderer_set_shader_uniform :: proc(shader: ^core.Shader, name: string, value: any) {
+	uniform, ok := shader.uniforms[name]
+	if !ok {
+		fmt.eprintf("[shader] unknown uniform: %s\n", name)
+		return
+	}
+
+	dst := shader.uniform_data[uniform.offset:][:uniform.size]
+
+	// Copy the value bytes into the staging buffer
+	src_ptr := value.data
+	src_size := 0
+
+	#partial switch uniform.type {
+	case .F32:       src_size = 4
+	case .I32:       src_size = 4
+	case .U32:       src_size = 4
+	case .Vec2F32:   src_size = 8
+	case .Vec3F32:   src_size = 12
+	case .Vec4F32:   src_size = 16
+	case .Mat4x4F32: src_size = 64
+	}
+
+	if src_size > 0 && src_size <= uniform.size {
+		src_bytes := ([^]u8)(src_ptr)[:src_size]
+		copy(dst, src_bytes)
+	}
+
+	shader.uniform_dirty = true
+}
+
+@(private = "file")
+renderer_set_shader :: proc(shader: ^core.Shader) {
+	r := &renderer
+	if r.active_shader != shader {
+		renderer_flush()
+		r.active_shader = shader
+	}
+}
+
+@(private = "file")
+renderer_reset_shader :: proc() {
+	r := &renderer
+	if r.active_shader != nil {
+		renderer_flush()
+		r.active_shader = nil
+	}
+}
+
+@(private = "file")
+renderer_destroy_shader :: proc(shader: ^core.Shader) {
+	if shader.bind_group != nil {wgpu.BindGroupRelease(shader.bind_group)}
+	if shader.bind_group_layout != nil {wgpu.BindGroupLayoutRelease(shader.bind_group_layout)}
+	if shader.uniform_buffer != nil {wgpu.BufferRelease(shader.uniform_buffer)}
+	if shader.pipeline != nil {wgpu.RenderPipelineRelease(shader.pipeline)}
+	if shader.pipeline_layout != nil {wgpu.PipelineLayoutRelease(shader.pipeline_layout)}
+	if shader.module != nil {wgpu.ShaderModuleRelease(shader.module)}
+
+	if shader.uniform_data != nil {
+		delete(shader.uniform_data)
+	}
+
+	// Free uniform map keys
+	for key in shader.uniforms {
+		delete(key)
+	}
+	delete(shader.uniforms)
+
+	delete(shader.vertex_entry)
+	delete(shader.fragment_entry)
+
+	shader^ = {}
 }
 
 // Helper to convert Color ([4]u8) to [4]f64 for wgpu clear values.

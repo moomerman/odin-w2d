@@ -15,6 +15,7 @@ Vec2 :: core.Vec2
 Rect :: core.Rect
 Color :: core.Color
 Texture :: core.Texture
+Shader :: core.Shader
 Stats :: core.Stats
 
 Audio_Source :: core.Audio_Source
