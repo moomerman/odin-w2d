@@ -13,33 +13,33 @@ import core "../../core"
 // Returns an Audio_Backend vtable for miniaudio.
 backend :: proc() -> core.Audio_Backend {
 	return core.Audio_Backend {
-		init                  = ma_init,
-		shutdown              = ma_shutdown,
-		update                = ma_update,
-		load                  = ma_load_audio,
-		load_from_bytes       = ma_load_audio_from_bytes,
-		destroy               = ma_destroy_audio,
-		get_duration          = ma_get_audio_duration,
-		play                  = ma_play_audio,
-		stop                  = ma_stop_audio,
-		pause                 = ma_pause_audio,
-		resume                = ma_resume_audio,
-		stop_all              = ma_stop_all_audio,
-		set_volume            = ma_set_audio_volume,
-		set_pan               = ma_set_audio_pan,
-		set_pitch             = ma_set_audio_pitch,
-		set_looping           = ma_set_audio_looping,
-		set_position          = ma_set_audio_position,
-		is_playing            = ma_is_audio_playing,
-		is_paused             = ma_is_audio_paused,
-		get_time              = ma_get_audio_time,
-		create_bus            = ma_create_audio_bus,
-		destroy_bus           = ma_destroy_audio_bus,
-		get_main_bus          = ma_get_main_audio_bus,
-		set_bus_volume        = ma_set_audio_bus_volume,
-		get_bus_volume        = ma_get_audio_bus_volume,
-		set_bus_muted         = ma_set_audio_bus_muted,
-		is_bus_muted          = ma_is_audio_bus_muted,
+		init = ma_init,
+		shutdown = ma_shutdown,
+		update = ma_update,
+		load = ma_load_audio,
+		load_from_bytes = ma_load_audio_from_bytes,
+		destroy = ma_destroy_audio,
+		get_duration = ma_get_audio_duration,
+		play = ma_play_audio,
+		stop = ma_stop_audio,
+		pause = ma_pause_audio,
+		resume = ma_resume_audio,
+		stop_all = ma_stop_all_audio,
+		set_volume = ma_set_audio_volume,
+		set_pan = ma_set_audio_pan,
+		set_pitch = ma_set_audio_pitch,
+		set_looping = ma_set_audio_looping,
+		set_position = ma_set_audio_position,
+		is_playing = ma_is_audio_playing,
+		is_paused = ma_is_audio_paused,
+		get_time = ma_get_audio_time,
+		create_bus = ma_create_audio_bus,
+		destroy_bus = ma_destroy_audio_bus,
+		get_main_bus = ma_get_main_audio_bus,
+		set_bus_volume = ma_set_audio_bus_volume,
+		get_bus_volume = ma_get_audio_bus_volume,
+		set_bus_muted = ma_set_audio_bus_muted,
+		is_bus_muted = ma_is_audio_bus_muted,
 		set_listener_position = ma_set_audio_listener_position,
 		get_listener_position = ma_get_audio_listener_position,
 	}
@@ -361,7 +361,10 @@ ma_load_audio_from_bytes :: proc(data: []u8, type: core.Audio_Source_Type) -> co
 }
 
 @(private = "file")
-load_from_decoder :: proc(decoder: ^miniaudio.decoder, type: core.Audio_Source_Type) -> core.Audio_Source {
+load_from_decoder :: proc(
+	decoder: ^miniaudio.decoder,
+	type: core.Audio_Source_Type,
+) -> core.Audio_Source {
 	channels := decoder.outputChannels
 	bytes_per_frame := channels * size_of(f32)
 
@@ -482,7 +485,10 @@ ma_get_audio_duration :: proc(source: core.Audio_Source) -> f32 {
 //----------//
 
 @(private = "file")
-ma_play_audio :: proc(source: core.Audio_Source, params: core.Audio_Play_Params) -> core.Audio_Instance {
+ma_play_audio :: proc(
+	source: core.Audio_Source,
+	params: core.Audio_Play_Params,
+) -> core.Audio_Instance {
 	if state == nil {
 		fmt.eprintln("audio: System not initialized")
 		return core.AUDIO_INSTANCE_NONE

@@ -29,9 +29,9 @@ WGSL_Field :: struct {
 	name:        string,
 	type:        WGSL_Type,
 	struct_name: string, // non-empty when type == .Struct
-	offset:      int,    // byte offset within the struct (computed)
-	size:        int,    // byte size (computed)
-	align:       int,    // alignment requirement (computed)
+	offset:      int, // byte offset within the struct (computed)
+	size:        int, // byte size (computed)
+	align:       int, // alignment requirement (computed)
 }
 
 // A parsed WGSL struct definition.
@@ -44,11 +44,11 @@ WGSL_Struct :: struct {
 
 // A parsed @group/@binding declaration.
 WGSL_Binding :: struct {
-	group:      int,
-	binding:    int,
-	name:       string,
-	type:       string, // "uniform", "sampler", "texture_2d"
-	type_name:  string, // the struct/type name for uniforms
+	group:     int,
+	binding:   int,
+	name:      string,
+	type:      string, // "uniform", "sampler", "texture_2d"
+	type_name: string, // the struct/type name for uniforms
 }
 
 // Result of parsing a WGSL source string.
@@ -62,14 +62,22 @@ WGSL_Parse_Result :: struct {
 // Returns (size, alignment) for a WGSL primitive type.
 wgsl_type_layout :: proc(type: WGSL_Type) -> (size: int, align_: int) {
 	switch type {
-	case .F32:       return 4, 4
-	case .I32:       return 4, 4
-	case .U32:       return 4, 4
-	case .Vec2F32:   return 8, 8
-	case .Vec3F32:   return 12, 16 // vec3 has alignment of 16 in WGSL
-	case .Vec4F32:   return 16, 16
-	case .Mat4x4F32: return 64, 16
-	case .Struct:    return 0, 0   // looked up from parsed struct
+	case .F32:
+		return 4, 4
+	case .I32:
+		return 4, 4
+	case .U32:
+		return 4, 4
+	case .Vec2F32:
+		return 8, 8
+	case .Vec3F32:
+		return 12, 16 // vec3 has alignment of 16 in WGSL
+	case .Vec4F32:
+		return 16, 16
+	case .Mat4x4F32:
+		return 64, 16
+	case .Struct:
+		return 0, 0 // looked up from parsed struct
 	}
 	return 0, 0
 }
@@ -78,17 +86,28 @@ wgsl_type_layout :: proc(type: WGSL_Type) -> (size: int, align_: int) {
 parse_wgsl_type :: proc(type_str: string) -> (type: WGSL_Type, is_struct: bool) {
 	s := strings.trim_space(type_str)
 	switch s {
-	case "f32":            return .F32, false
-	case "i32":            return .I32, false
-	case "u32":            return .U32, false
-	case "vec2<f32>":      return .Vec2F32, false
-	case "vec2f":          return .Vec2F32, false
-	case "vec3<f32>":      return .Vec3F32, false
-	case "vec3f":          return .Vec3F32, false
-	case "vec4<f32>":      return .Vec4F32, false
-	case "vec4f":          return .Vec4F32, false
-	case "mat4x4<f32>":    return .Mat4x4F32, false
-	case "mat4x4f":        return .Mat4x4F32, false
+	case "f32":
+		return .F32, false
+	case "i32":
+		return .I32, false
+	case "u32":
+		return .U32, false
+	case "vec2<f32>":
+		return .Vec2F32, false
+	case "vec2f":
+		return .Vec2F32, false
+	case "vec3<f32>":
+		return .Vec3F32, false
+	case "vec3f":
+		return .Vec3F32, false
+	case "vec4<f32>":
+		return .Vec4F32, false
+	case "vec4f":
+		return .Vec4F32, false
+	case "mat4x4<f32>":
+		return .Mat4x4F32, false
+	case "mat4x4f":
+		return .Mat4x4F32, false
 	}
 	return .Struct, true
 }

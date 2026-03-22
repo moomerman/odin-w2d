@@ -9,5 +9,9 @@ import "../render/wgpu"
 import "../window/sdl3"
 
 default :: proc() -> Backends {
-	return Backends{window = sdl3.backend(), renderer = wgpu.backend(), audio = miniaudio.backend()}
+	return Backends {
+		window = sdl3.backend(),
+		renderer = wgpu.backend(),
+		audio = miniaudio.backend(),
+	}
 }

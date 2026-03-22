@@ -170,16 +170,26 @@ sdl3_set_cursor_visible :: proc(visible: bool) {
 sdl3_set_system_cursor :: proc(cursor: core.System_Cursor) {
 	sdl_cursor: SDL.SystemCursor
 	switch cursor {
-	case .Default:     sdl_cursor = .DEFAULT
-	case .Text:        sdl_cursor = .TEXT
-	case .Crosshair:   sdl_cursor = .CROSSHAIR
-	case .Pointer:     sdl_cursor = .POINTER
-	case .Resize_EW:   sdl_cursor = .EW_RESIZE
-	case .Resize_NS:   sdl_cursor = .NS_RESIZE
-	case .Resize_NWSE: sdl_cursor = .NWSE_RESIZE
-	case .Resize_NESW: sdl_cursor = .NESW_RESIZE
-	case .Move:        sdl_cursor = .MOVE
-	case .Not_Allowed: sdl_cursor = .NOT_ALLOWED
+	case .Default:
+		sdl_cursor = .DEFAULT
+	case .Text:
+		sdl_cursor = .TEXT
+	case .Crosshair:
+		sdl_cursor = .CROSSHAIR
+	case .Pointer:
+		sdl_cursor = .POINTER
+	case .Resize_EW:
+		sdl_cursor = .EW_RESIZE
+	case .Resize_NS:
+		sdl_cursor = .NS_RESIZE
+	case .Resize_NWSE:
+		sdl_cursor = .NWSE_RESIZE
+	case .Resize_NESW:
+		sdl_cursor = .NESW_RESIZE
+	case .Move:
+		sdl_cursor = .MOVE
+	case .Not_Allowed:
+		sdl_cursor = .NOT_ALLOWED
 	}
 	new_cursor := SDL.CreateSystemCursor(sdl_cursor)
 	if new_cursor != nil {
@@ -194,7 +204,8 @@ sdl3_set_system_cursor :: proc(cursor: core.System_Cursor) {
 @(private = "file")
 sdl3_set_custom_cursor :: proc(pixels: []u8, width, height, hot_x, hot_y: int) {
 	surface := SDL.CreateSurfaceFrom(
-		i32(width), i32(height),
+		i32(width),
+		i32(height),
 		.RGBA32,
 		raw_data(pixels),
 		i32(width * 4),

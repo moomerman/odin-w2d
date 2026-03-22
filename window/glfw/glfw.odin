@@ -126,16 +126,26 @@ glfw_set_cursor_visible :: proc(visible: bool) {
 glfw_set_system_cursor :: proc(cursor: core.System_Cursor) {
 	shape: i32
 	switch cursor {
-	case .Default:     shape = glfw.ARROW_CURSOR
-	case .Text:        shape = glfw.IBEAM_CURSOR
-	case .Crosshair:   shape = glfw.CROSSHAIR_CURSOR
-	case .Pointer:     shape = glfw.POINTING_HAND_CURSOR
-	case .Resize_EW:   shape = glfw.RESIZE_EW_CURSOR
-	case .Resize_NS:   shape = glfw.RESIZE_NS_CURSOR
-	case .Resize_NWSE: shape = glfw.RESIZE_NWSE_CURSOR
-	case .Resize_NESW: shape = glfw.RESIZE_NESW_CURSOR
-	case .Move:        shape = glfw.RESIZE_ALL_CURSOR
-	case .Not_Allowed: shape = glfw.NOT_ALLOWED_CURSOR
+	case .Default:
+		shape = glfw.ARROW_CURSOR
+	case .Text:
+		shape = glfw.IBEAM_CURSOR
+	case .Crosshair:
+		shape = glfw.CROSSHAIR_CURSOR
+	case .Pointer:
+		shape = glfw.POINTING_HAND_CURSOR
+	case .Resize_EW:
+		shape = glfw.RESIZE_EW_CURSOR
+	case .Resize_NS:
+		shape = glfw.RESIZE_NS_CURSOR
+	case .Resize_NWSE:
+		shape = glfw.RESIZE_NWSE_CURSOR
+	case .Resize_NESW:
+		shape = glfw.RESIZE_NESW_CURSOR
+	case .Move:
+		shape = glfw.RESIZE_ALL_CURSOR
+	case .Not_Allowed:
+		shape = glfw.NOT_ALLOWED_CURSOR
 	}
 	new_cursor := glfw.CreateStandardCursor(shape)
 	if new_cursor != nil {

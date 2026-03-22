@@ -894,12 +894,7 @@ renderer_load_shader :: proc(wgsl_source: string) -> core.Shader {
 	// Create shader module
 	shader.module = wgpu.DeviceCreateShaderModule(
 		r.device,
-		&{
-			nextInChain = &wgpu.ShaderSourceWGSL {
-				sType = .ShaderSourceWGSL,
-				code = wgsl_source,
-			},
-		},
+		&{nextInChain = &wgpu.ShaderSourceWGSL{sType = .ShaderSourceWGSL, code = wgsl_source}},
 	)
 
 	// Store entry points
@@ -929,13 +924,20 @@ renderer_load_shader :: proc(wgsl_source: string) -> core.Shader {
 			for &field in s.fields {
 				uniform_type: core.Shader_Uniform_Type
 				#partial switch field.type {
-				case .F32:       uniform_type = .F32
-				case .I32:       uniform_type = .I32
-				case .U32:       uniform_type = .U32
-				case .Vec2F32:   uniform_type = .Vec2F32
-				case .Vec3F32:   uniform_type = .Vec3F32
-				case .Vec4F32:   uniform_type = .Vec4F32
-				case .Mat4x4F32: uniform_type = .Mat4x4F32
+				case .F32:
+					uniform_type = .F32
+				case .I32:
+					uniform_type = .I32
+				case .U32:
+					uniform_type = .U32
+				case .Vec2F32:
+					uniform_type = .Vec2F32
+				case .Vec3F32:
+					uniform_type = .Vec3F32
+				case .Vec4F32:
+					uniform_type = .Vec4F32
+				case .Mat4x4F32:
+					uniform_type = .Mat4x4F32
 				}
 				shader.uniforms[strings.clone(field.name)] = core.Shader_Uniform {
 					offset = field.offset,
@@ -1011,14 +1013,14 @@ renderer_load_shader :: proc(wgsl_source: string) -> core.Shader {
 		&{
 			layout = shader.pipeline_layout,
 			vertex = {
-				module      = shader.module,
-				entryPoint  = shader.vertex_entry,
+				module = shader.module,
+				entryPoint = shader.vertex_entry,
 				bufferCount = 1,
-				buffers     = &wgpu.VertexBufferLayout {
-					arrayStride    = VERTEX_SIZE,
-					stepMode       = .Vertex,
+				buffers = &wgpu.VertexBufferLayout {
+					arrayStride = VERTEX_SIZE,
+					stepMode = .Vertex,
 					attributeCount = 3,
-					attributes     = raw_data(
+					attributes = raw_data(
 						[]wgpu.VertexAttribute {
 							{format = .Float32x2, offset = 0, shaderLocation = 0},
 							{format = .Float32x2, offset = 2 * size_of(f32), shaderLocation = 1},
@@ -1071,13 +1073,20 @@ renderer_set_shader_uniform :: proc(shader: ^core.Shader, name: string, value: a
 	src_size := 0
 
 	#partial switch uniform.type {
-	case .F32:       src_size = 4
-	case .I32:       src_size = 4
-	case .U32:       src_size = 4
-	case .Vec2F32:   src_size = 8
-	case .Vec3F32:   src_size = 12
-	case .Vec4F32:   src_size = 16
-	case .Mat4x4F32: src_size = 64
+	case .F32:
+		src_size = 4
+	case .I32:
+		src_size = 4
+	case .U32:
+		src_size = 4
+	case .Vec2F32:
+		src_size = 8
+	case .Vec3F32:
+		src_size = 12
+	case .Vec4F32:
+		src_size = 16
+	case .Mat4x4F32:
+		src_size = 64
 	}
 
 	if src_size > 0 && src_size <= uniform.size {

@@ -35,11 +35,11 @@ Shader :: struct {
 	pipeline:          wgpu.RenderPipeline,
 	pipeline_layout:   wgpu.PipelineLayout,
 	bind_group_layout: wgpu.BindGroupLayout, // group 1 layout
-	bind_group:        wgpu.BindGroup,        // group 1 bind group
+	bind_group:        wgpu.BindGroup, // group 1 bind group
 
 	// Uniform buffer
 	uniform_buffer:    wgpu.Buffer,
-	uniform_data:      []u8,    // CPU staging buffer
+	uniform_data:      []u8, // CPU staging buffer
 	uniform_dirty:     bool,
 	uniform_size:      int,
 

@@ -76,17 +76,25 @@ native_init :: proc(width, height: int, title: string, resize_cb: proc()) {
 	app_menu_item := menu_bar->addItemWithTitle(NS.AT(""), nil, NS.AT(""))
 
 	app_menu := NS.Menu_alloc()->init()
-	app_menu->addItemWithTitle(NS.AT("Quit"), NS.sel_registerName(cstring("terminate:")), NS.AT("q"))
+	app_menu->addItemWithTitle(
+		NS.AT("Quit"),
+		NS.sel_registerName(cstring("terminate:")),
+		NS.AT("q"),
+	)
 	app_menu_item->setSubmenu(app_menu)
 	app->setAppleMenu(app_menu)
 
 	// Create window
 	rect := NS.Rect {
 		origin = {0, 0},
-		size = {NS.Float(width), NS.Float(height)},
+		size   = {NS.Float(width), NS.Float(height)},
 	}
 
-	style := NS.WindowStyleMaskTitled | NS.WindowStyleMaskClosable | NS.WindowStyleMaskMiniaturizable | NS.WindowStyleMaskResizable
+	style :=
+		NS.WindowStyleMaskTitled |
+		NS.WindowStyleMaskClosable |
+		NS.WindowStyleMaskMiniaturizable |
+		NS.WindowStyleMaskResizable
 	window = NS.Window_alloc()->initWithContentRect(rect, style, .Buffered, false)
 
 	title_str := NS.String_alloc()->initWithOdinString(title)
@@ -104,21 +112,16 @@ native_init :: proc(width, height: int, title: string, resize_cb: proc()) {
 	window->makeKeyAndOrderFront(nil)
 
 	// Application delegate — prevents terminate: from hard-killing the process.
-	app_delegate := NS.application_delegate_register_and_alloc(
-		NS.ApplicationDelegateTemplate {
+	app_delegate := NS.application_delegate_register_and_alloc(NS.ApplicationDelegateTemplate {
 			applicationShouldTerminate = proc(_: ^NS.Application) -> NS.ApplicationTerminateReply {
 				should_quit = true
 				return .TerminateCancel
 			},
-		},
-		"NativeDarwinApplicationDelegate",
-		odin_ctx,
-	)
+		}, "NativeDarwinApplicationDelegate", odin_ctx)
 	app->setDelegate(app_delegate)
 
 	// Window delegate — proper close and resize handling.
-	win_delegate := NS.window_delegate_register_and_alloc(
-		NS.WindowDelegateTemplate {
+	win_delegate := NS.window_delegate_register_and_alloc(NS.WindowDelegateTemplate {
 			windowShouldClose = proc(_: ^NS.Window) -> bool {
 				should_quit = true
 				return false
@@ -136,10 +139,7 @@ native_init :: proc(width, height: int, title: string, resize_cb: proc()) {
 					}
 				}
 			},
-		},
-		"NativeDarwinWindowDelegate",
-		odin_ctx,
-	)
+		}, "NativeDarwinWindowDelegate", odin_ctx)
 	window->setDelegate(win_delegate)
 
 	app->activateIgnoringOtherApps(true)
@@ -160,12 +160,7 @@ native_shutdown :: proc() {
 @(private = "file")
 native_poll_events :: proc() -> bool {
 	for {
-		event := app->nextEventMatchingMask(
-			NS.EventMaskAny,
-			nil,
-			NS.DefaultRunLoopMode,
-			true,
-		)
+		event := app->nextEventMatchingMask(NS.EventMaskAny, nil, NS.DefaultRunLoopMode, true)
 
 		if event == nil {
 			break
@@ -179,7 +174,9 @@ native_poll_events :: proc() -> bool {
 			if key != nil {
 				append(
 					&events,
-					core.Event(core.Key_Event{key = key.?, down = true, repeat = event->isARepeat()}),
+					core.Event(
+						core.Key_Event{key = key.?, down = true, repeat = event->isARepeat()},
+					),
 				)
 			}
 
@@ -205,27 +202,45 @@ native_poll_events :: proc() -> bool {
 
 		case .LeftMouseDown:
 			pos := mouse_pos_from_event(event)
-			append(&events, core.Event(core.Mouse_Button_Event{button = .Left, down = true, pos = pos}))
+			append(
+				&events,
+				core.Event(core.Mouse_Button_Event{button = .Left, down = true, pos = pos}),
+			)
 
 		case .LeftMouseUp:
 			pos := mouse_pos_from_event(event)
-			append(&events, core.Event(core.Mouse_Button_Event{button = .Left, down = false, pos = pos}))
+			append(
+				&events,
+				core.Event(core.Mouse_Button_Event{button = .Left, down = false, pos = pos}),
+			)
 
 		case .RightMouseDown:
 			pos := mouse_pos_from_event(event)
-			append(&events, core.Event(core.Mouse_Button_Event{button = .Right, down = true, pos = pos}))
+			append(
+				&events,
+				core.Event(core.Mouse_Button_Event{button = .Right, down = true, pos = pos}),
+			)
 
 		case .RightMouseUp:
 			pos := mouse_pos_from_event(event)
-			append(&events, core.Event(core.Mouse_Button_Event{button = .Right, down = false, pos = pos}))
+			append(
+				&events,
+				core.Event(core.Mouse_Button_Event{button = .Right, down = false, pos = pos}),
+			)
 
 		case .OtherMouseDown:
 			pos := mouse_pos_from_event(event)
-			append(&events, core.Event(core.Mouse_Button_Event{button = .Middle, down = true, pos = pos}))
+			append(
+				&events,
+				core.Event(core.Mouse_Button_Event{button = .Middle, down = true, pos = pos}),
+			)
 
 		case .OtherMouseUp:
 			pos := mouse_pos_from_event(event)
-			append(&events, core.Event(core.Mouse_Button_Event{button = .Middle, down = false, pos = pos}))
+			append(
+				&events,
+				core.Event(core.Mouse_Button_Event{button = .Middle, down = false, pos = pos}),
+			)
 
 		case .MouseMoved, .LeftMouseDragged, .RightMouseDragged, .OtherMouseDragged:
 			pos := mouse_pos_from_event(event)
@@ -255,11 +270,9 @@ native_poll_events :: proc() -> bool {
 native_get_surface :: proc(instance: wgpu.Instance) -> wgpu.Surface {
 	return wgpu.InstanceCreateSurface(
 		instance,
-		&wgpu.SurfaceDescriptor{
-			nextInChain = &wgpu.SurfaceSourceMetalLayer{
-				chain = wgpu.ChainedStruct{
-					sType = .SurfaceSourceMetalLayer,
-				},
+		&wgpu.SurfaceDescriptor {
+			nextInChain = &wgpu.SurfaceSourceMetalLayer {
+				chain = wgpu.ChainedStruct{sType = .SurfaceSourceMetalLayer},
 				layer = metal_layer,
 			},
 		},
@@ -307,7 +320,11 @@ mouse_pos_from_event :: proc(event: ^NS.Event) -> core.Vec2 {
 }
 
 @(private = "file")
-handle_modifier_change :: proc(flag: NS.EventModifierFlag, key: core.Key, new_flags: NS.EventModifierFlags) {
+handle_modifier_change :: proc(
+	flag: NS.EventModifierFlag,
+	key: core.Key,
+	new_flags: NS.EventModifierFlags,
+) {
 	was_down := flag in prev_modifier_flags
 	is_down := flag in new_flags
 	if is_down && !was_down {
@@ -320,95 +337,177 @@ handle_modifier_change :: proc(flag: NS.EventModifierFlag, key: core.Key, new_fl
 @(private = "file")
 key_from_macos_keycode :: proc(keycode: u16) -> Maybe(core.Key) {
 	#partial switch NS.kVK(keycode) {
-	case .ANSI_A: return .A
-	case .ANSI_B: return .B
-	case .ANSI_C: return .C
-	case .ANSI_D: return .D
-	case .ANSI_E: return .E
-	case .ANSI_F: return .F
-	case .ANSI_G: return .G
-	case .ANSI_H: return .H
-	case .ANSI_I: return .I
-	case .ANSI_J: return .J
-	case .ANSI_K: return .K
-	case .ANSI_L: return .L
-	case .ANSI_M: return .M
-	case .ANSI_N: return .N
-	case .ANSI_O: return .O
-	case .ANSI_P: return .P
-	case .ANSI_Q: return .Q
-	case .ANSI_R: return .R
-	case .ANSI_S: return .S
-	case .ANSI_T: return .T
-	case .ANSI_U: return .U
-	case .ANSI_V: return .V
-	case .ANSI_W: return .W
-	case .ANSI_X: return .X
-	case .ANSI_Y: return .Y
-	case .ANSI_Z: return .Z
+	case .ANSI_A:
+		return .A
+	case .ANSI_B:
+		return .B
+	case .ANSI_C:
+		return .C
+	case .ANSI_D:
+		return .D
+	case .ANSI_E:
+		return .E
+	case .ANSI_F:
+		return .F
+	case .ANSI_G:
+		return .G
+	case .ANSI_H:
+		return .H
+	case .ANSI_I:
+		return .I
+	case .ANSI_J:
+		return .J
+	case .ANSI_K:
+		return .K
+	case .ANSI_L:
+		return .L
+	case .ANSI_M:
+		return .M
+	case .ANSI_N:
+		return .N
+	case .ANSI_O:
+		return .O
+	case .ANSI_P:
+		return .P
+	case .ANSI_Q:
+		return .Q
+	case .ANSI_R:
+		return .R
+	case .ANSI_S:
+		return .S
+	case .ANSI_T:
+		return .T
+	case .ANSI_U:
+		return .U
+	case .ANSI_V:
+		return .V
+	case .ANSI_W:
+		return .W
+	case .ANSI_X:
+		return .X
+	case .ANSI_Y:
+		return .Y
+	case .ANSI_Z:
+		return .Z
 
-	case .ANSI_1: return .Key_1
-	case .ANSI_2: return .Key_2
-	case .ANSI_3: return .Key_3
-	case .ANSI_4: return .Key_4
-	case .ANSI_5: return .Key_5
-	case .ANSI_6: return .Key_6
-	case .ANSI_7: return .Key_7
-	case .ANSI_8: return .Key_8
-	case .ANSI_9: return .Key_9
-	case .ANSI_0: return .Key_0
+	case .ANSI_1:
+		return .Key_1
+	case .ANSI_2:
+		return .Key_2
+	case .ANSI_3:
+		return .Key_3
+	case .ANSI_4:
+		return .Key_4
+	case .ANSI_5:
+		return .Key_5
+	case .ANSI_6:
+		return .Key_6
+	case .ANSI_7:
+		return .Key_7
+	case .ANSI_8:
+		return .Key_8
+	case .ANSI_9:
+		return .Key_9
+	case .ANSI_0:
+		return .Key_0
 
-	case .Return:        return .Return
-	case .Escape:        return .Escape
-	case .Delete:        return .Backspace  // macOS "Delete" is backspace
-	case .Tab:           return .Tab
-	case .Space:         return .Space
+	case .Return:
+		return .Return
+	case .Escape:
+		return .Escape
+	case .Delete:
+		return .Backspace // macOS "Delete" is backspace
+	case .Tab:
+		return .Tab
+	case .Space:
+		return .Space
 
-	case .ANSI_Minus:         return .Minus
-	case .ANSI_Equal:         return .Equals
-	case .ANSI_LeftBracket:   return .Left_Bracket
-	case .ANSI_RightBracket:  return .Right_Bracket
-	case .ANSI_Backslash:     return .Backslash
-	case .ANSI_Semicolon:     return .Semicolon
-	case .ANSI_Quote:         return .Apostrophe
-	case .ANSI_Grave:         return .Grave
-	case .ANSI_Comma:         return .Comma
-	case .ANSI_Period:        return .Period
-	case .ANSI_Slash:         return .Slash
+	case .ANSI_Minus:
+		return .Minus
+	case .ANSI_Equal:
+		return .Equals
+	case .ANSI_LeftBracket:
+		return .Left_Bracket
+	case .ANSI_RightBracket:
+		return .Right_Bracket
+	case .ANSI_Backslash:
+		return .Backslash
+	case .ANSI_Semicolon:
+		return .Semicolon
+	case .ANSI_Quote:
+		return .Apostrophe
+	case .ANSI_Grave:
+		return .Grave
+	case .ANSI_Comma:
+		return .Comma
+	case .ANSI_Period:
+		return .Period
+	case .ANSI_Slash:
+		return .Slash
 
-	case .F1:  return .F1
-	case .F2:  return .F2
-	case .F3:  return .F3
-	case .F4:  return .F4
-	case .F5:  return .F5
-	case .F6:  return .F6
-	case .F7:  return .F7
-	case .F8:  return .F8
-	case .F9:  return .F9
-	case .F10: return .F10
-	case .F11: return .F11
-	case .F12: return .F12
+	case .F1:
+		return .F1
+	case .F2:
+		return .F2
+	case .F3:
+		return .F3
+	case .F4:
+		return .F4
+	case .F5:
+		return .F5
+	case .F6:
+		return .F6
+	case .F7:
+		return .F7
+	case .F8:
+		return .F8
+	case .F9:
+		return .F9
+	case .F10:
+		return .F10
+	case .F11:
+		return .F11
+	case .F12:
+		return .F12
 
-	case .Home:          return .Home
-	case .PageUp:        return .Page_Up
-	case .ForwardDelete: return .Delete
-	case .End:           return .End
-	case .PageDown:      return .Page_Down
+	case .Home:
+		return .Home
+	case .PageUp:
+		return .Page_Up
+	case .ForwardDelete:
+		return .Delete
+	case .End:
+		return .End
+	case .PageDown:
+		return .Page_Down
 
-	case .RightArrow: return .Right
-	case .LeftArrow:  return .Left
-	case .DownArrow:  return .Down
-	case .UpArrow:    return .Up
+	case .RightArrow:
+		return .Right
+	case .LeftArrow:
+		return .Left
+	case .DownArrow:
+		return .Down
+	case .UpArrow:
+		return .Up
 
-	case .Shift:        return .Left_Shift
-	case .RightShift:   return .Right_Shift
-	case .Control:      return .Left_Ctrl
-	case .RightControl: return .Right_Ctrl
-	case .Option:       return .Left_Alt
-	case .RightOption:  return .Right_Alt
-	case .Command:      return .Left_Super
-	case .RightCommand: return .Right_Super
+	case .Shift:
+		return .Left_Shift
+	case .RightShift:
+		return .Right_Shift
+	case .Control:
+		return .Left_Ctrl
+	case .RightControl:
+		return .Right_Ctrl
+	case .Option:
+		return .Left_Alt
+	case .RightOption:
+		return .Right_Alt
+	case .Command:
+		return .Left_Super
+	case .RightCommand:
+		return .Right_Super
 
-	case: return nil
+	case:
+		return nil
 	}
 }

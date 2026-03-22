@@ -9,33 +9,33 @@ import core "../../core"
 // Returns an Audio_Backend vtable for Web Audio API.
 backend :: proc() -> core.Audio_Backend {
 	return core.Audio_Backend {
-		init                  = wa_init,
-		shutdown              = wa_shutdown,
-		update                = wa_update,
-		load                  = wa_load_audio,
-		load_from_bytes       = wa_load_audio_from_bytes,
-		destroy               = wa_destroy_audio,
-		get_duration          = wa_get_audio_duration,
-		play                  = wa_play_audio,
-		stop                  = wa_stop_audio,
-		pause                 = wa_pause_audio,
-		resume                = wa_resume_audio,
-		stop_all              = wa_stop_all_audio,
-		set_volume            = wa_set_audio_volume,
-		set_pan               = wa_set_audio_pan,
-		set_pitch             = wa_set_audio_pitch,
-		set_looping           = wa_set_audio_looping,
-		set_position          = wa_set_audio_position,
-		is_playing            = wa_is_audio_playing,
-		is_paused             = wa_is_audio_paused,
-		get_time              = wa_get_audio_time,
-		create_bus            = wa_create_audio_bus,
-		destroy_bus           = wa_destroy_audio_bus,
-		get_main_bus          = wa_get_main_audio_bus,
-		set_bus_volume        = wa_set_audio_bus_volume,
-		get_bus_volume        = wa_get_audio_bus_volume,
-		set_bus_muted         = wa_set_audio_bus_muted,
-		is_bus_muted          = wa_is_audio_bus_muted,
+		init = wa_init,
+		shutdown = wa_shutdown,
+		update = wa_update,
+		load = wa_load_audio,
+		load_from_bytes = wa_load_audio_from_bytes,
+		destroy = wa_destroy_audio,
+		get_duration = wa_get_audio_duration,
+		play = wa_play_audio,
+		stop = wa_stop_audio,
+		pause = wa_pause_audio,
+		resume = wa_resume_audio,
+		stop_all = wa_stop_all_audio,
+		set_volume = wa_set_audio_volume,
+		set_pan = wa_set_audio_pan,
+		set_pitch = wa_set_audio_pitch,
+		set_looping = wa_set_audio_looping,
+		set_position = wa_set_audio_position,
+		is_playing = wa_is_audio_playing,
+		is_paused = wa_is_audio_paused,
+		get_time = wa_get_audio_time,
+		create_bus = wa_create_audio_bus,
+		destroy_bus = wa_destroy_audio_bus,
+		get_main_bus = wa_get_main_audio_bus,
+		set_bus_volume = wa_set_audio_bus_volume,
+		get_bus_volume = wa_get_audio_bus_volume,
+		set_bus_muted = wa_set_audio_bus_muted,
+		is_bus_muted = wa_is_audio_bus_muted,
 		set_listener_position = wa_set_audio_listener_position,
 		get_listener_position = wa_get_audio_listener_position,
 	}
@@ -217,7 +217,10 @@ wa_get_audio_duration :: proc(source: core.Audio_Source) -> f32 {
 //----------//
 
 @(private = "file")
-wa_play_audio :: proc(source: core.Audio_Source, params: core.Audio_Play_Params) -> core.Audio_Instance {
+wa_play_audio :: proc(
+	source: core.Audio_Source,
+	params: core.Audio_Play_Params,
+) -> core.Audio_Instance {
 	if state == nil || !state.initialized {
 		fmt.eprintln("audio: System not initialized")
 		return core.AUDIO_INSTANCE_NONE

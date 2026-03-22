@@ -11,5 +11,9 @@ import "../render/wgpu"
 import "../window/darwin"
 
 default :: proc() -> Backends {
-	return Backends{window = darwin.backend(), renderer = wgpu.backend(), audio = miniaudio.backend()}
+	return Backends {
+		window = darwin.backend(),
+		renderer = wgpu.backend(),
+		audio = miniaudio.backend(),
+	}
 }

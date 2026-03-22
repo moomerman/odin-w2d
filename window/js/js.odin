@@ -155,18 +155,30 @@ js_set_cursor_visible :: proc(visible: bool) {
 js_set_system_cursor :: proc(cursor: core.System_Cursor) {
 	css_value: string
 	switch cursor {
-	case .Default:     css_value = "default"
-	case .Text:        css_value = "text"
-	case .Crosshair:   css_value = "crosshair"
-	case .Pointer:     css_value = "pointer"
-	case .Resize_EW:   css_value = "ew-resize"
-	case .Resize_NS:   css_value = "ns-resize"
-	case .Resize_NWSE: css_value = "nwse-resize"
-	case .Resize_NESW: css_value = "nesw-resize"
-	case .Move:        css_value = "move"
-	case .Not_Allowed: css_value = "not-allowed"
+	case .Default:
+		css_value = "default"
+	case .Text:
+		css_value = "text"
+	case .Crosshair:
+		css_value = "crosshair"
+	case .Pointer:
+		css_value = "pointer"
+	case .Resize_EW:
+		css_value = "ew-resize"
+	case .Resize_NS:
+		css_value = "ns-resize"
+	case .Resize_NWSE:
+		css_value = "nwse-resize"
+	case .Resize_NESW:
+		css_value = "nesw-resize"
+	case .Move:
+		css_value = "move"
+	case .Not_Allowed:
+		css_value = "not-allowed"
 	}
-	js.evaluate(fmt.tprintf(`document.getElementById("wgpu-canvas").style.cursor = "%s";`, css_value))
+	js.evaluate(
+		fmt.tprintf(`document.getElementById("wgpu-canvas").style.cursor = "%s";`, css_value),
+	)
 }
 
 @(private = "file")
@@ -176,7 +188,11 @@ js_set_custom_cursor :: proc(pixels: []u8, width, height, hot_x, hot_y: int) {
 	js.evaluate(
 		fmt.tprintf(
 			`(function(){{var w=%d,h=%d,hx=%d,hy=%d;var b=atob("%s");var a=new Uint8ClampedArray(b.length);for(var i=0;i<b.length;i++)a[i]=b.charCodeAt(i);var c=document.createElement("canvas");c.width=w;c.height=h;var ctx=c.getContext("2d");ctx.putImageData(new ImageData(a,w,h),0,0);document.getElementById("wgpu-canvas").style.cursor="url("+c.toDataURL()+") "+hx+" "+hy+", auto";}})();`,
-			width, height, hot_x, hot_y, b64,
+			width,
+			height,
+			hot_x,
+			hot_y,
+			b64,
 		),
 	)
 }
