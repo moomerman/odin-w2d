@@ -10,14 +10,15 @@ KEY_COUNT :: int(max(core.Key)) + 1
 
 @(private = "package")
 Input_State :: struct {
-	mouse_pos:       Vec2,
-	mouse_delta:     Vec2,
-	mouse_held:      [MOUSE_BUTTON_COUNT]bool,
-	mouse_went_down: [MOUSE_BUTTON_COUNT]bool,
-	mouse_went_up:   [MOUSE_BUTTON_COUNT]bool,
-	key_held:        [KEY_COUNT]bool,
-	key_went_down:   [KEY_COUNT]bool,
-	key_went_up:     [KEY_COUNT]bool,
+	mouse_pos:        Vec2,
+	mouse_delta:      Vec2,
+	mouse_held:       [MOUSE_BUTTON_COUNT]bool,
+	mouse_went_down:  [MOUSE_BUTTON_COUNT]bool,
+	mouse_went_up:    [MOUSE_BUTTON_COUNT]bool,
+	mouse_deferred_up: [MOUSE_BUTTON_COUNT]bool,
+	key_held:         [KEY_COUNT]bool,
+	key_went_down:    [KEY_COUNT]bool,
+	key_went_up:      [KEY_COUNT]bool,
 }
 
 @(private = "package")
@@ -34,6 +35,16 @@ process_input :: proc() {
 	input.key_went_down = {}
 	input.key_went_up = {}
 
+	// Apply deferred mouse-up events from the previous frame. If a new
+	// down event arrives this frame it will cancel the defer below.
+	for btn in 0 ..< MOUSE_BUTTON_COUNT {
+		if input.mouse_deferred_up[btn] {
+			input.mouse_deferred_up[btn] = false
+			input.mouse_held[btn] = false
+			input.mouse_went_up[btn] = true
+		}
+	}
+
 	// Drain events from the window backend.
 	for event in ctx.window.get_events() {
 		switch e in event {
@@ -46,6 +57,7 @@ process_input :: proc() {
 			if e.down {
 				input.mouse_held[btn] = true
 				input.mouse_went_down[btn] = true
+				input.mouse_deferred_up[btn] = false
 			} else {
 				input.mouse_held[btn] = false
 				input.mouse_went_up[btn] = true
@@ -61,6 +73,18 @@ process_input :: proc() {
 				input.key_held[k] = false
 				input.key_went_up[k] = true
 			}
+		}
+	}
+
+	// macOS trackpads can deliver DOWN+UP in the same event batch when the
+	// user clicks, then send a sustained DOWN ~500ms later once the OS
+	// confirms a hold/drag. When both fire in the same frame, keep held
+	// true and defer the UP by several frames to bridge the gap.
+	for btn in 0 ..< MOUSE_BUTTON_COUNT {
+		if input.mouse_went_down[btn] && input.mouse_went_up[btn] {
+			input.mouse_held[btn] = true
+			input.mouse_went_up[btn] = false
+			input.mouse_deferred_up[btn] = true
 		}
 	}
 }
