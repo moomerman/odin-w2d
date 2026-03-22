@@ -48,6 +48,10 @@ sdl3_init :: proc(width, height: int, title: string, on_resize: proc()) {
 		fmt.panicf("SDL.Init error: %s", SDL.GetError())
 	}
 
+	// Disable mouse auto-capture on click. This can cause click delays on macOS
+	// when window managers like Magnet intercept mouse events for drag detection.
+	SDL.SetHint(SDL.HINT_MOUSE_AUTO_CAPTURE, "0")
+
 	sdl3_window = SDL.CreateWindow(
 		fmt.ctprintf("%s", title),
 		i32(width),

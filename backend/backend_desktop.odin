@@ -1,5 +1,6 @@
+#+build !darwin
 #+build !js
-// Desktop backend wiring — selects SDL3 for windowing and wgpu for rendering.
+// Non-macOS desktop backend wiring — uses SDL3 for windowing.
 
 package backend
 
