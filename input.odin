@@ -10,15 +10,17 @@ KEY_COUNT :: int(max(core.Key)) + 1
 
 @(private = "package")
 Input_State :: struct {
-	mouse_pos:        Vec2,
-	mouse_delta:      Vec2,
-	mouse_held:       [MOUSE_BUTTON_COUNT]bool,
-	mouse_went_down:  [MOUSE_BUTTON_COUNT]bool,
-	mouse_went_up:    [MOUSE_BUTTON_COUNT]bool,
+	mouse_pos:         Vec2,
+	mouse_delta:       Vec2,
+	scroll_delta:              Vec2,
+	scroll_delta_no_momentum: Vec2,
+	mouse_held:        [MOUSE_BUTTON_COUNT]bool,
+	mouse_went_down:   [MOUSE_BUTTON_COUNT]bool,
+	mouse_went_up:     [MOUSE_BUTTON_COUNT]bool,
 	mouse_deferred_up: [MOUSE_BUTTON_COUNT]bool,
-	key_held:         [KEY_COUNT]bool,
-	key_went_down:    [KEY_COUNT]bool,
-	key_went_up:      [KEY_COUNT]bool,
+	key_held:          [KEY_COUNT]bool,
+	key_went_down:     [KEY_COUNT]bool,
+	key_went_up:       [KEY_COUNT]bool,
 }
 
 @(private = "package")
@@ -30,6 +32,8 @@ input: Input_State
 process_input :: proc() {
 	// Clear per-frame state.
 	input.mouse_delta = {}
+	input.scroll_delta = {}
+	input.scroll_delta_no_momentum = {}
 	input.mouse_went_down = {}
 	input.mouse_went_up = {}
 	input.key_went_down = {}
@@ -61,6 +65,11 @@ process_input :: proc() {
 			} else {
 				input.mouse_held[btn] = false
 				input.mouse_went_up[btn] = true
+			}
+		case core.Mouse_Scroll_Event:
+			input.scroll_delta += e.delta
+			if !e.momentum {
+				input.scroll_delta_no_momentum += e.delta
 			}
 		case core.Key_Event:
 			k := int(e.key)
@@ -101,6 +110,14 @@ get_mouse_position :: proc() -> Vec2 {
 // Get the mouse movement delta since the last frame.
 get_mouse_delta :: proc() -> Vec2 {
 	return input.mouse_delta
+}
+
+// Get the scroll wheel delta since the last frame.
+// Positive Y = up/away from user, positive X = right.
+// Set include_momentum to false to ignore OS-generated inertia events
+// (macOS trackpad/Magic Mouse momentum scrolling).
+get_scroll_delta :: proc(include_momentum: bool = true) -> Vec2 {
+	return include_momentum ? input.scroll_delta : input.scroll_delta_no_momentum
 }
 
 // Returns true if the mouse button was pressed this frame.

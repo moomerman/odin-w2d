@@ -6,6 +6,7 @@ import w "../.."
 
 RECT_SIZE :: 60
 
+scroll_y: f32
 color: w.Color
 cursor_hidden: bool
 cursor_index: int
@@ -96,11 +97,15 @@ frame :: proc(dt: f32) {
 
 	pos := w.get_mouse_position()
 	delta := w.get_mouse_delta()
+	scroll := w.get_scroll_delta(include_momentum = false)
+	scroll_y += scroll.y
 
 	w.clear(w.DARK_GRAY)
 
-	// Draw a rectangle centered on the cursor.
-	w.draw_rect({pos.x - RECT_SIZE / 2, pos.y - RECT_SIZE / 2, RECT_SIZE, RECT_SIZE}, color)
+	// Draw a rectangle centered on the cursor, scaled by scroll wheel.
+	scale := clamp(1.0 + scroll_y * 0.1, 0.2, 5.0)
+	size := f32(RECT_SIZE) * scale
+	w.draw_rect({pos.x - size / 2, pos.y - size / 2, size, size}, color)
 
 	// Draw a small crosshair at the exact cursor position.
 	w.draw_rect({pos.x - 10, pos.y - 1, 20, 2}, w.WHITE)
@@ -114,7 +119,7 @@ frame :: proc(dt: f32) {
 	// HUD: show current cursor info.
 	w.draw_text(cursor_names[cursor_index], {10, 10}, 16, w.WHITE)
 	w.draw_text(cursor_hidden ? "Hidden (H)" : "Visible (H)", {10, 30}, 16, w.WHITE)
-	w.draw_text("C: cycle cursor  X: custom cursor", {10, 50}, 16, w.LIGHT_GRAY)
+	w.draw_text("C: cycle cursor  X: custom cursor  Scroll: resize", {10, 50}, 16, w.LIGHT_GRAY)
 
 	w.present()
 }

@@ -99,6 +99,13 @@ get_screen_size :: proc() -> (int, int) {
 	return int(w), int(h)
 }
 
+// Set the window mode (windowed, fixed-size, fullscreen, or borderless).
+set_window_mode :: proc(mode: Window_Mode) {
+	if ctx.window.set_window_mode != nil {
+		ctx.window.set_window_mode(mode)
+	}
+}
+
 // Returns rendering statistics for the most recently completed frame.
 get_stats :: proc() -> Stats {
 	return ctx.renderer.get_stats(ctx.frame_time)

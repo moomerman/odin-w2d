@@ -38,6 +38,7 @@ backend :: proc() -> core.Window_Backend {
 		set_cursor_visible = sdl3_set_cursor_visible,
 		set_system_cursor = sdl3_set_system_cursor,
 		set_custom_cursor = sdl3_set_custom_cursor,
+		set_window_mode = sdl3_set_window_mode,
 	}
 }
 
@@ -119,6 +120,16 @@ sdl3_poll_events :: proc() -> bool {
 						button = btn,
 						down = e.type == .MOUSE_BUTTON_DOWN,
 						pos = {e.button.x, e.button.y},
+					},
+				),
+			)
+		case .MOUSE_WHEEL:
+			append(
+				&sdl3_events,
+				core.Event(
+					core.Mouse_Scroll_Event {
+						delta = {e.wheel.x, e.wheel.y},
+						pos = {e.wheel.mouse_x, e.wheel.mouse_y},
 					},
 				),
 			)
@@ -225,4 +236,29 @@ sdl3_set_custom_cursor :: proc(pixels: []u8, width, height, hot_x, hot_y: int) {
 		SDL.DestroyCursor(sdl3_current_cursor)
 	}
 	sdl3_current_cursor = new_cursor
+}
+
+@(private = "file")
+sdl3_set_window_mode :: proc(mode: core.Window_Mode) {
+	switch mode {
+	case .Windowed:
+		SDL.SetWindowFullscreen(sdl3_window, false)
+		SDL.SetWindowBordered(sdl3_window, true)
+		SDL.SetWindowResizable(sdl3_window, true)
+	case .Windowed_Fixed:
+		SDL.SetWindowFullscreen(sdl3_window, false)
+		SDL.SetWindowBordered(sdl3_window, true)
+		SDL.SetWindowResizable(sdl3_window, false)
+	case .Fullscreen:
+		SDL.SetWindowFullscreen(sdl3_window, true)
+	case .Borderless:
+		SDL.SetWindowFullscreen(sdl3_window, false)
+		SDL.SetWindowBordered(sdl3_window, false)
+		display := SDL.GetDisplayForWindow(sdl3_window)
+		bounds: SDL.Rect
+		if SDL.GetDisplayBounds(display, &bounds) {
+			SDL.SetWindowPosition(sdl3_window, bounds.x, bounds.y)
+			SDL.SetWindowSize(sdl3_window, bounds.w, bounds.h)
+		}
+	}
 }

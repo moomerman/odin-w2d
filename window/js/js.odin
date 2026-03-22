@@ -26,6 +26,7 @@ backend :: proc() -> core.Window_Backend {
 		set_cursor_visible = js_set_cursor_visible,
 		set_system_cursor = js_set_system_cursor,
 		set_custom_cursor = js_set_custom_cursor,
+		set_window_mode = js_set_window_mode,
 	}
 }
 
@@ -39,6 +40,8 @@ js_init :: proc(width, height: int, title: string, on_resize: proc()) {
 	js.add_event_listener("wgpu-canvas", .Mouse_Down, nil, js_mouse_button_callback)
 	js.add_event_listener("wgpu-canvas", .Mouse_Up, nil, js_mouse_button_callback)
 
+	js.add_event_listener("wgpu-canvas", .Wheel, nil, js_wheel_callback)
+
 	js.add_window_event_listener(.Key_Down, nil, js_key_callback)
 	js.add_window_event_listener(.Key_Up, nil, js_key_callback)
 }
@@ -50,6 +53,8 @@ js_shutdown :: proc() {
 	js.remove_event_listener("wgpu-canvas", .Mouse_Move, nil, js_mouse_move_callback)
 	js.remove_event_listener("wgpu-canvas", .Mouse_Down, nil, js_mouse_button_callback)
 	js.remove_event_listener("wgpu-canvas", .Mouse_Up, nil, js_mouse_button_callback)
+
+	js.remove_event_listener("wgpu-canvas", .Wheel, nil, js_wheel_callback)
 
 	js.remove_window_event_listener(.Key_Down, nil, js_key_callback)
 	js.remove_window_event_listener(.Key_Up, nil, js_key_callback)
@@ -375,4 +380,43 @@ js_code_to_key :: proc(code: string) -> (core.Key, bool) {
 		return .Right_Super, true
 	}
 	return {}, false
+}
+
+@(private = "file")
+js_wheel_callback :: proc(e: js.Event) {
+	// DOM convention: positive deltaY = scroll down, we want positive Y = up.
+	dx := f32(-e.wheel.delta[0])
+	dy := f32(-e.wheel.delta[1])
+
+	// Normalize line/page modes to approximate pixel values.
+	switch e.wheel.delta_mode {
+	case .Pixel:
+	// Already in pixels.
+	case .Line:
+		dx *= 20
+		dy *= 20
+	case .Page:
+		dx *= 400
+		dy *= 400
+	}
+
+	append(
+		&js_events,
+		core.Event(
+			core.Mouse_Scroll_Event {
+				delta = {dx, dy},
+				pos = {f32(e.mouse.client[0]), f32(e.mouse.client[1])},
+			},
+		),
+	)
+}
+
+@(private = "file")
+js_set_window_mode :: proc(mode: core.Window_Mode) {
+	switch mode {
+	case .Fullscreen, .Borderless:
+		js.evaluate(`document.documentElement.requestFullscreen();`)
+	case .Windowed, .Windowed_Fixed:
+		js.evaluate(`if(document.fullscreenElement)document.exitFullscreen();`)
+	}
 }

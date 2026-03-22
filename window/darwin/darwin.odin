@@ -51,6 +51,9 @@ cursor_hidden: bool
 @(private = "file")
 current_custom_cursor: ^NS.Cursor
 
+@(private = "file")
+current_window_mode: core.Window_Mode
+
 backend :: proc() -> core.Window_Backend {
 	return core.Window_Backend {
 		init = native_init,
@@ -62,6 +65,7 @@ backend :: proc() -> core.Window_Backend {
 		set_cursor_visible = native_set_cursor_visible,
 		set_system_cursor = native_set_system_cursor,
 		set_custom_cursor = native_set_custom_cursor,
+		set_window_mode = native_set_window_mode,
 	}
 }
 
@@ -249,6 +253,12 @@ native_poll_events :: proc() -> bool {
 				core.Event(core.Mouse_Button_Event{button = .Middle, down = false, pos = pos}),
 			)
 
+		case .ScrollWheel:
+			pos := mouse_pos_from_event(event)
+			dx, dy := event->scrollingDelta()
+			is_momentum := event->momentumPhase() != NS.EventPhaseNone
+			append(&events, core.Event(core.Mouse_Scroll_Event{delta = {f32(dx), f32(dy)}, pos = pos, momentum = is_momentum}))
+
 		case .MouseMoved, .LeftMouseDragged, .RightMouseDragged, .OtherMouseDragged:
 			pos := mouse_pos_from_event(event)
 			delta := core.Vec2{f32(event->deltaX()), f32(event->deltaY())}
@@ -380,6 +390,45 @@ native_set_custom_cursor :: proc(pixels: []u8, w, h, hot_x, hot_y: int) {
 		}
 		current_custom_cursor = new_cursor
 	}
+}
+
+@(private = "file")
+native_set_window_mode :: proc(mode: core.Window_Mode) {
+	if mode == current_window_mode {return}
+
+	is_fullscreen := current_window_mode == .Fullscreen
+	wants_fullscreen := mode == .Fullscreen
+
+	// Exit fullscreen first if we're in it and not staying in it.
+	if is_fullscreen && !wants_fullscreen {
+		window->toggleFullScreen(nil)
+	}
+
+	switch mode {
+	case .Windowed:
+		style :=
+			NS.WindowStyleMaskTitled |
+			NS.WindowStyleMaskClosable |
+			NS.WindowStyleMaskMiniaturizable |
+			NS.WindowStyleMaskResizable
+		window->setStyleMask(style)
+	case .Windowed_Fixed:
+		style :=
+			NS.WindowStyleMaskTitled |
+			NS.WindowStyleMaskClosable |
+			NS.WindowStyleMaskMiniaturizable
+		window->setStyleMask(style)
+	case .Fullscreen:
+		if !is_fullscreen {
+			window->toggleFullScreen(nil)
+		}
+	case .Borderless:
+		screen_frame := window->screen()->frame()
+		window->setStyleMask(NS.WindowStyleMaskBorderless)
+		window->setFrame(screen_frame, true)
+	}
+
+	current_window_mode = mode
 }
 
 // --- Helpers ---

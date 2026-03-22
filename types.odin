@@ -10,6 +10,7 @@ Shader_Handle :: core.Shader_Handle
 Mouse_Button :: core.Mouse_Button
 Key :: core.Key
 System_Cursor :: core.System_Cursor
+Window_Mode :: core.Window_Mode
 
 Font :: core.Font
 Vec2 :: core.Vec2

@@ -39,6 +39,12 @@ glfw_last_mouse_pos: [2]f64
 @(private = "file")
 glfw_mouse_pos_valid: bool
 
+@(private = "file")
+glfw_saved_pos: [2]i32
+
+@(private = "file")
+glfw_saved_size: [2]i32
+
 // Returns a Window_Backend vtable for GLFW.
 backend :: proc() -> core.Window_Backend {
 	return core.Window_Backend {
@@ -51,6 +57,7 @@ backend :: proc() -> core.Window_Backend {
 		set_cursor_visible = glfw_set_cursor_visible,
 		set_system_cursor = glfw_set_system_cursor,
 		set_custom_cursor = glfw_set_custom_cursor,
+		set_window_mode = glfw_set_window_mode,
 	}
 }
 
@@ -78,6 +85,7 @@ glfw_init :: proc(width, height: int, title: string, on_resize: proc()) {
 	glfw.SetCursorPosCallback(glfw_window, glfw_cursor_pos_callback)
 	glfw.SetMouseButtonCallback(glfw_window, glfw_mouse_button_callback)
 	glfw.SetKeyCallback(glfw_window, glfw_key_callback)
+	glfw.SetScrollCallback(glfw_window, glfw_scroll_callback)
 }
 
 @(private = "file")
@@ -348,4 +356,47 @@ glfw_map_key :: proc "c" (glfw_key: i32) -> (core.Key, bool) {
 		return .Right_Super, true
 	}
 	return {}, false
+}
+
+@(private = "file")
+glfw_scroll_callback :: proc "c" (window: glfw.WindowHandle, xoffset, yoffset: f64) {
+	context = runtime.default_context()
+	xpos, ypos := glfw.GetCursorPos(window)
+	append(
+		&glfw_events,
+		core.Event(
+			core.Mouse_Scroll_Event {
+				delta = {f32(xoffset), f32(yoffset)},
+				pos = {f32(xpos), f32(ypos)},
+			},
+		),
+	)
+}
+
+@(private = "file")
+glfw_set_window_mode :: proc(mode: core.Window_Mode) {
+	switch mode {
+	case .Windowed:
+		glfw.SetWindowMonitor(glfw_window, nil, glfw_saved_pos.x, glfw_saved_pos.y, glfw_saved_size.x, glfw_saved_size.y, 0)
+		glfw.SetWindowAttrib(glfw_window, glfw.DECORATED, glfw.TRUE)
+		glfw.SetWindowAttrib(glfw_window, glfw.RESIZABLE, glfw.TRUE)
+	case .Windowed_Fixed:
+		glfw.SetWindowMonitor(glfw_window, nil, glfw_saved_pos.x, glfw_saved_pos.y, glfw_saved_size.x, glfw_saved_size.y, 0)
+		glfw.SetWindowAttrib(glfw_window, glfw.DECORATED, glfw.TRUE)
+		glfw.SetWindowAttrib(glfw_window, glfw.RESIZABLE, glfw.FALSE)
+	case .Fullscreen:
+		// Save current position/size for restoring later.
+		glfw_saved_pos.x, glfw_saved_pos.y = glfw.GetWindowPos(glfw_window)
+		glfw_saved_size.x, glfw_saved_size.y = glfw.GetWindowSize(glfw_window)
+		monitor := glfw.GetPrimaryMonitor()
+		vid_mode := glfw.GetVideoMode(monitor)
+		glfw.SetWindowMonitor(glfw_window, monitor, 0, 0, vid_mode.width, vid_mode.height, vid_mode.refresh_rate)
+	case .Borderless:
+		// Save current position/size for restoring later.
+		glfw_saved_pos.x, glfw_saved_pos.y = glfw.GetWindowPos(glfw_window)
+		glfw_saved_size.x, glfw_saved_size.y = glfw.GetWindowSize(glfw_window)
+		glfw.SetWindowAttrib(glfw_window, glfw.DECORATED, glfw.FALSE)
+		_, _, mw, mh := glfw.GetMonitorWorkarea(glfw.GetPrimaryMonitor())
+		glfw.SetWindowMonitor(glfw_window, nil, 0, 0, mw, mh, 0)
+	}
 }

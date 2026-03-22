@@ -123,6 +123,7 @@ Key :: enum u16 {
 Event :: union {
 	Mouse_Move_Event,
 	Mouse_Button_Event,
+	Mouse_Scroll_Event,
 	Key_Event,
 }
 
@@ -135,6 +136,12 @@ Mouse_Button_Event :: struct {
 	button: Mouse_Button,
 	down:   bool, // true = pressed, false = released
 	pos:    Vec2,
+}
+
+Mouse_Scroll_Event :: struct {
+	delta:    Vec2, // scroll amount (positive Y = up/away from user, positive X = right)
+	pos:      Vec2, // mouse position at time of scroll
+	momentum: bool, // true if this is an OS-generated momentum/inertia event (macOS trackpad/Magic Mouse)
 }
 
 Key_Event :: struct {
