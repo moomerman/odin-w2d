@@ -1,7 +1,5 @@
 package core
 
-import "vendor:wgpu"
-
 // Texture is backend-agnostic. The handle is an opaque ID managed by
 // the active Render_Backend; width and height are cached for convenience.
 Texture :: struct {
@@ -10,45 +8,10 @@ Texture :: struct {
 	height: int,
 }
 
-// WGSL type tag for uniform metadata.
-Shader_Uniform_Type :: enum {
-	F32,
-	I32,
-	U32,
-	Vec2F32,
-	Vec3F32,
-	Vec4F32,
-	Mat4x4F32,
-}
-
-// Metadata for a single uniform field within a shader's uniform buffer.
-Shader_Uniform :: struct {
-	offset: int,
-	size:   int,
-	type:   Shader_Uniform_Type,
-}
-
-// A loaded custom shader with its GPU resources and uniform metadata.
+// Shader is backend-agnostic. The handle is an opaque ID managed by
+// the active Render_Backend; all GPU resources are internal to the backend.
 Shader :: struct {
-	// WGPU resources
-	module:            wgpu.ShaderModule,
-	pipeline:          wgpu.RenderPipeline,
-	pipeline_layout:   wgpu.PipelineLayout,
-	bind_group_layout: wgpu.BindGroupLayout, // group 1 layout
-	bind_group:        wgpu.BindGroup, // group 1 bind group
-
-	// Uniform buffer
-	uniform_buffer:    wgpu.Buffer,
-	uniform_data:      []u8, // CPU staging buffer
-	uniform_dirty:     bool,
-	uniform_size:      int,
-
-	// Uniform metadata (from parser)
-	uniforms:          map[string]Shader_Uniform, // name -> offset/size/type
-
-	// Entry points
-	vertex_entry:      string,
-	fragment_entry:    string,
+	handle: Shader_Handle,
 }
 
 // Render_Backend abstracts over different rendering implementations.
@@ -107,18 +70,18 @@ Render_Backend :: struct {
 	// Get rendering statistics for the most recently completed frame.
 	get_stats:            proc(frame_time: f32) -> Stats,
 
-	// Load a custom shader from WGSL source. Returns a Shader with GPU resources.
-	load_shader:          proc(wgsl_source: string) -> Shader,
+	// Load a custom shader from WGSL source. Returns an opaque handle.
+	load_shader:          proc(wgsl_source: string) -> Shader_Handle,
 
 	// Set a uniform value by name on a custom shader.
-	set_shader_uniform:   proc(shader: ^Shader, name: string, value: any),
+	set_shader_uniform:   proc(handle: Shader_Handle, name: string, value: any),
 
 	// Activate a custom shader for subsequent draw calls.
-	set_shader:           proc(shader: ^Shader),
+	set_shader:           proc(handle: Shader_Handle),
 
 	// Reset to the default engine shader.
 	reset_shader:         proc(),
 
 	// Destroy a custom shader and free its GPU resources.
-	destroy_shader:       proc(shader: ^Shader),
+	destroy_shader:       proc(handle: Shader_Handle),
 }

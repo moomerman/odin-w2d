@@ -3,9 +3,15 @@
 
 package core
 
+import hm "core:container/handle_map"
+
 // Opaque handle to a texture managed by the render backend.
 // The backend maps this to its internal GPU resources.
 Texture_Handle :: distinct u64
+
+// Opaque handle to a shader managed by the render backend.
+// The backend maps this to its internal GPU resources.
+Shader_Handle :: hm.Handle32
 
 // Opaque handle to a loaded font. Index 0 is reserved as invalid.
 Font :: distinct int

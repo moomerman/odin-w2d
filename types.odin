@@ -6,6 +6,7 @@ Window_Backend :: core.Window_Backend
 Render_Backend :: core.Render_Backend
 Audio_Backend :: core.Audio_Backend
 Texture_Handle :: core.Texture_Handle
+Shader_Handle :: core.Shader_Handle
 Mouse_Button :: core.Mouse_Button
 Key :: core.Key
 System_Cursor :: core.System_Cursor

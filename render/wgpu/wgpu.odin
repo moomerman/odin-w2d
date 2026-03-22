@@ -1,6 +1,7 @@
 package renderer_wgpu
 
 import "base:runtime"
+import hm "core:container/handle_map"
 import "core:fmt"
 import "core:math/linalg"
 import "core:strings"
@@ -42,6 +43,52 @@ Texture_Entry :: struct {
 	view:   wgpu.TextureView,
 	width:  int,
 	height: int,
+}
+
+// WGSL type tag for uniform metadata.
+@(private = "file")
+Shader_Uniform_Type :: enum {
+	F32,
+	I32,
+	U32,
+	Vec2F32,
+	Vec3F32,
+	Vec4F32,
+	Mat4x4F32,
+}
+
+// Metadata for a single uniform field within a shader's uniform buffer.
+@(private = "file")
+Shader_Uniform :: struct {
+	offset: int,
+	size:   int,
+	type:   Shader_Uniform_Type,
+}
+
+// Internal GPU resources and metadata for a custom shader.
+@(private = "file")
+Shader_Entry :: struct {
+	handle:            core.Shader_Handle,
+
+	// WGPU resources
+	module:            wgpu.ShaderModule,
+	pipeline:          wgpu.RenderPipeline,
+	pipeline_layout:   wgpu.PipelineLayout,
+	bind_group_layout: wgpu.BindGroupLayout,
+	bind_group:        wgpu.BindGroup,
+
+	// Uniform buffer
+	uniform_buffer:    wgpu.Buffer,
+	uniform_data:      []u8,
+	uniform_dirty:     bool,
+	uniform_size:      int,
+
+	// Uniform metadata
+	uniforms:          map[string]Shader_Uniform,
+
+	// Entry points
+	vertex_entry:      string,
+	fragment_entry:    string,
 }
 
 @(private = "file")
@@ -116,12 +163,15 @@ Renderer :: struct {
 	textures:               map[core.Texture_Handle]Texture_Entry,
 	next_handle_id:         u64,
 
+	// Shader handle map
+	shaders:                hm.Dynamic_Handle_Map(Shader_Entry, core.Shader_Handle),
+
 	// Stats for the current frame being built, and the last completed frame.
 	current_stats:          Renderer_Stats,
 	last_stats:             Renderer_Stats,
 
-	// Active custom shader (nil = default pipeline).
-	active_shader:          ^core.Shader,
+	// Active custom shader (zero-value = default pipeline).
+	active_shader:          core.Shader_Handle,
 }
 
 @(private = "file")
@@ -160,6 +210,7 @@ renderer_init :: proc(window: ^core.Window_Backend, on_initialized: proc()) {
 	renderer.on_initialized = on_initialized
 	renderer.next_handle_id = 1
 	renderer.textures = make(map[core.Texture_Handle]Texture_Entry)
+	hm.dynamic_init(&renderer.shaders, context.allocator)
 
 	renderer.instance = wgpu.CreateInstance(nil)
 	if renderer.instance == nil {
@@ -431,7 +482,7 @@ renderer_begin_frame :: proc(color: core.Color) -> bool {
 	r.current_texture_view = nil
 	r.current_bind_group = nil
 	r.frame_bind_group_count = 0
-	r.active_shader = nil
+	r.active_shader = {}
 
 	// Reset per-frame stats, carrying over resource counts.
 	r.current_stats = {
@@ -490,27 +541,25 @@ renderer_flush :: proc() {
 	wgpu.QueueWriteBuffer(r.queue, r.vertex_buffer, u64(gpu_offset), &r.vertices, data_size)
 
 	// Use the custom shader pipeline if active, otherwise the default.
-	if r.active_shader != nil {
-		shader := r.active_shader
-
+	if entry, ok := hm.get(&r.shaders, r.active_shader); ok {
 		// Upload dirty uniforms
-		if shader.uniform_dirty && shader.uniform_buffer != nil {
+		if entry.uniform_dirty && entry.uniform_buffer != nil {
 			wgpu.QueueWriteBuffer(
 				r.queue,
-				shader.uniform_buffer,
+				entry.uniform_buffer,
 				0,
-				raw_data(shader.uniform_data),
-				uint(shader.uniform_size),
+				raw_data(entry.uniform_data),
+				uint(entry.uniform_size),
 			)
-			shader.uniform_dirty = false
+			entry.uniform_dirty = false
 		}
 
-		wgpu.RenderPassEncoderSetPipeline(r.current_pass, shader.pipeline)
+		wgpu.RenderPassEncoderSetPipeline(r.current_pass, entry.pipeline)
 		if r.current_bind_group != nil {
 			wgpu.RenderPassEncoderSetBindGroup(r.current_pass, 0, r.current_bind_group)
 		}
-		if shader.bind_group != nil {
-			wgpu.RenderPassEncoderSetBindGroup(r.current_pass, 1, shader.bind_group)
+		if entry.bind_group != nil {
+			wgpu.RenderPassEncoderSetBindGroup(r.current_pass, 1, entry.bind_group)
 		}
 	} else {
 		wgpu.RenderPassEncoderSetPipeline(r.current_pass, r.pipeline)
@@ -874,6 +923,13 @@ renderer_shutdown :: proc() {
 	}
 	delete(r.textures)
 
+	// Destroy any remaining shaders.
+	shader_it := hm.iterator_make(&r.shaders)
+	for entry, handle in hm.iterate(&shader_it) {
+		renderer_destroy_shader(handle)
+	}
+	hm.dynamic_destroy(&r.shaders)
+
 	if r.vertex_buffer != nil {wgpu.BufferRelease(r.vertex_buffer)}
 	if r.index_buffer != nil {wgpu.BufferRelease(r.index_buffer)}
 	if r.projection_buffer != nil {wgpu.BufferRelease(r.projection_buffer)}
@@ -910,25 +966,25 @@ renderer_get_stats :: proc(frame_time: f32) -> core.Stats {
 // --- Custom Shader API ---
 
 @(private = "file")
-renderer_load_shader :: proc(wgsl_source: string) -> core.Shader {
+renderer_load_shader :: proc(wgsl_source: string) -> core.Shader_Handle {
 	r := &renderer
-	shader: core.Shader
+	entry: Shader_Entry
 
 	// Parse WGSL to extract metadata
 	parse := parse_wgsl(wgsl_source)
 	defer destroy_parse_result(&parse)
 
 	// Create shader module
-	shader.module = wgpu.DeviceCreateShaderModule(
+	entry.module = wgpu.DeviceCreateShaderModule(
 		r.device,
 		&{nextInChain = &wgpu.ShaderSourceWGSL{sType = .ShaderSourceWGSL, code = wgsl_source}},
 	)
 
 	// Store entry points
-	shader.vertex_entry = strings.clone(
+	entry.vertex_entry = strings.clone(
 		len(parse.vertex_entry) > 0 ? parse.vertex_entry : "vs_main",
 	)
-	shader.fragment_entry = strings.clone(
+	entry.fragment_entry = strings.clone(
 		len(parse.fragment_entry) > 0 ? parse.fragment_entry : "fs_main",
 	)
 
@@ -945,11 +1001,11 @@ renderer_load_shader :: proc(wgsl_source: string) -> core.Shader {
 	if len(uniform_struct_name) > 0 {
 		s := find_struct(&parse.structs, uniform_struct_name)
 		if s != nil {
-			shader.uniform_size = s.size
-			shader.uniforms = make(map[string]core.Shader_Uniform)
+			entry.uniform_size = s.size
+			entry.uniforms = make(map[string]Shader_Uniform)
 
 			for &field in s.fields {
-				uniform_type: core.Shader_Uniform_Type
+				uniform_type: Shader_Uniform_Type
 				#partial switch field.type {
 				case .F32:
 					uniform_type = .F32
@@ -966,7 +1022,7 @@ renderer_load_shader :: proc(wgsl_source: string) -> core.Shader {
 				case .Mat4x4F32:
 					uniform_type = .Mat4x4F32
 				}
-				shader.uniforms[strings.clone(field.name)] = core.Shader_Uniform {
+				entry.uniforms[strings.clone(field.name)] = Shader_Uniform {
 					offset = field.offset,
 					size   = field.size,
 					type   = uniform_type,
@@ -976,23 +1032,23 @@ renderer_load_shader :: proc(wgsl_source: string) -> core.Shader {
 	}
 
 	// Create bind group layout for group 1 (user uniforms)
-	if shader.uniform_size > 0 {
-		shader.bind_group_layout = wgpu.DeviceCreateBindGroupLayout(
+	if entry.uniform_size > 0 {
+		entry.bind_group_layout = wgpu.DeviceCreateBindGroupLayout(
 			r.device,
 			&{
 				entryCount = 1,
 				entries = &wgpu.BindGroupLayoutEntry {
 					binding = 0,
 					visibility = {.Vertex, .Fragment},
-					buffer = {type = .Uniform, minBindingSize = u64(shader.uniform_size)},
+					buffer = {type = .Uniform, minBindingSize = u64(entry.uniform_size)},
 				},
 			},
 		)
 
 		// Create uniform buffer
 		// Round up to 16 bytes for WebGPU minimum buffer size
-		buf_size := u64(align_up(shader.uniform_size, 16))
-		shader.uniform_buffer = wgpu.DeviceCreateBuffer(
+		buf_size := u64(align_up(entry.uniform_size, 16))
+		entry.uniform_buffer = wgpu.DeviceCreateBuffer(
 			r.device,
 			&{
 				label = "Custom Shader Uniform Buffer",
@@ -1002,46 +1058,46 @@ renderer_load_shader :: proc(wgsl_source: string) -> core.Shader {
 		)
 
 		// Create CPU staging buffer
-		shader.uniform_data = make([]u8, shader.uniform_size)
+		entry.uniform_data = make([]u8, entry.uniform_size)
 
 		// Create bind group
-		shader.bind_group = wgpu.DeviceCreateBindGroup(
+		entry.bind_group = wgpu.DeviceCreateBindGroup(
 			r.device,
 			&{
-				layout = shader.bind_group_layout,
+				layout = entry.bind_group_layout,
 				entryCount = 1,
 				entries = &wgpu.BindGroupEntry {
 					binding = 0,
-					buffer = shader.uniform_buffer,
-					size = u64(shader.uniform_size),
+					buffer = entry.uniform_buffer,
+					size = u64(entry.uniform_size),
 				},
 			},
 		)
 	}
 
 	// Create pipeline layout: [engine group 0, user group 1]
-	if shader.bind_group_layout != nil {
-		layouts := [2]wgpu.BindGroupLayout{r.bind_group_layout, shader.bind_group_layout}
-		shader.pipeline_layout = wgpu.DeviceCreatePipelineLayout(
+	if entry.bind_group_layout != nil {
+		layouts := [2]wgpu.BindGroupLayout{r.bind_group_layout, entry.bind_group_layout}
+		entry.pipeline_layout = wgpu.DeviceCreatePipelineLayout(
 			r.device,
 			&{bindGroupLayoutCount = 2, bindGroupLayouts = &layouts[0]},
 		)
 	} else {
 		// No user uniforms — still need a pipeline with just group 0
-		shader.pipeline_layout = wgpu.DeviceCreatePipelineLayout(
+		entry.pipeline_layout = wgpu.DeviceCreatePipelineLayout(
 			r.device,
 			&{bindGroupLayoutCount = 1, bindGroupLayouts = &r.bind_group_layout},
 		)
 	}
 
 	// Create render pipeline (same vertex layout as default)
-	shader.pipeline = wgpu.DeviceCreateRenderPipeline(
+	entry.pipeline = wgpu.DeviceCreateRenderPipeline(
 		r.device,
 		&{
-			layout = shader.pipeline_layout,
+			layout = entry.pipeline_layout,
 			vertex = {
-				module = shader.module,
-				entryPoint = shader.vertex_entry,
+				module = entry.module,
+				entryPoint = entry.vertex_entry,
 				bufferCount = 1,
 				buffers = &wgpu.VertexBufferLayout {
 					arrayStride = VERTEX_SIZE,
@@ -1057,8 +1113,8 @@ renderer_load_shader :: proc(wgsl_source: string) -> core.Shader {
 				},
 			},
 			fragment = &{
-				module = shader.module,
-				entryPoint = shader.fragment_entry,
+				module = entry.module,
+				entryPoint = entry.fragment_entry,
 				targetCount = 1,
 				targets = &wgpu.ColorTargetState {
 					format = .BGRA8Unorm,
@@ -1082,18 +1138,27 @@ renderer_load_shader :: proc(wgsl_source: string) -> core.Shader {
 		},
 	)
 
-	return shader
+	// Store in handle map and return the handle.
+	handle, _ := hm.add(&r.shaders, entry)
+	return handle
 }
 
 @(private = "file")
-renderer_set_shader_uniform :: proc(shader: ^core.Shader, name: string, value: any) {
-	uniform, ok := shader.uniforms[name]
+renderer_set_shader_uniform :: proc(handle: core.Shader_Handle, name: string, value: any) {
+	entry, ok := hm.get(&renderer.shaders, handle)
+	if !ok {
+		fmt.eprintf("[shader] invalid shader handle\n")
+		return
+	}
+
+	uniform: Shader_Uniform
+	uniform, ok = entry.uniforms[name]
 	if !ok {
 		fmt.eprintf("[shader] unknown uniform: %s\n", name)
 		return
 	}
 
-	dst := shader.uniform_data[uniform.offset:][:uniform.size]
+	dst := entry.uniform_data[uniform.offset:][:uniform.size]
 
 	// Copy the value bytes into the staging buffer
 	src_ptr := value.data
@@ -1121,50 +1186,53 @@ renderer_set_shader_uniform :: proc(shader: ^core.Shader, name: string, value: a
 		copy(dst, src_bytes)
 	}
 
-	shader.uniform_dirty = true
+	entry.uniform_dirty = true
 }
 
 @(private = "file")
-renderer_set_shader :: proc(shader: ^core.Shader) {
+renderer_set_shader :: proc(handle: core.Shader_Handle) {
 	r := &renderer
-	if r.active_shader != shader {
+	if r.active_shader != handle {
 		renderer_flush()
-		r.active_shader = shader
+		r.active_shader = handle
 	}
 }
 
 @(private = "file")
 renderer_reset_shader :: proc() {
 	r := &renderer
-	if r.active_shader != nil {
+	if hm.is_valid(&r.shaders, r.active_shader) {
 		renderer_flush()
-		r.active_shader = nil
+		r.active_shader = {}
 	}
 }
 
 @(private = "file")
-renderer_destroy_shader :: proc(shader: ^core.Shader) {
-	if shader.bind_group != nil {wgpu.BindGroupRelease(shader.bind_group)}
-	if shader.bind_group_layout != nil {wgpu.BindGroupLayoutRelease(shader.bind_group_layout)}
-	if shader.uniform_buffer != nil {wgpu.BufferRelease(shader.uniform_buffer)}
-	if shader.pipeline != nil {wgpu.RenderPipelineRelease(shader.pipeline)}
-	if shader.pipeline_layout != nil {wgpu.PipelineLayoutRelease(shader.pipeline_layout)}
-	if shader.module != nil {wgpu.ShaderModuleRelease(shader.module)}
+renderer_destroy_shader :: proc(handle: core.Shader_Handle) {
+	entry, ok := hm.get(&renderer.shaders, handle)
+	if !ok {return}
 
-	if shader.uniform_data != nil {
-		delete(shader.uniform_data)
+	if entry.bind_group != nil {wgpu.BindGroupRelease(entry.bind_group)}
+	if entry.bind_group_layout != nil {wgpu.BindGroupLayoutRelease(entry.bind_group_layout)}
+	if entry.uniform_buffer != nil {wgpu.BufferRelease(entry.uniform_buffer)}
+	if entry.pipeline != nil {wgpu.RenderPipelineRelease(entry.pipeline)}
+	if entry.pipeline_layout != nil {wgpu.PipelineLayoutRelease(entry.pipeline_layout)}
+	if entry.module != nil {wgpu.ShaderModuleRelease(entry.module)}
+
+	if entry.uniform_data != nil {
+		delete(entry.uniform_data)
 	}
 
 	// Free uniform map keys
-	for key in shader.uniforms {
+	for key in entry.uniforms {
 		delete(key)
 	}
-	delete(shader.uniforms)
+	delete(entry.uniforms)
 
-	delete(shader.vertex_entry)
-	delete(shader.fragment_entry)
+	delete(entry.vertex_entry)
+	delete(entry.fragment_entry)
 
-	shader^ = {}
+	hm.remove(&renderer.shaders, handle)
 }
 
 // Helper to convert Color ([4]u8) to [4]f64 for wgpu clear values.
