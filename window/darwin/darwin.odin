@@ -274,9 +274,9 @@ native_poll_events :: proc() -> bool {
 }
 
 @(private = "file")
-native_get_surface :: proc(instance: wgpu.Instance) -> wgpu.Surface {
+native_get_surface :: proc(instance: rawptr) -> rawptr {
 	return wgpu.InstanceCreateSurface(
-		instance,
+		wgpu.Instance(instance),
 		&wgpu.SurfaceDescriptor {
 			nextInChain = &wgpu.SurfaceSourceMetalLayer {
 				chain = wgpu.ChainedStruct{sType = .SurfaceSourceMetalLayer},

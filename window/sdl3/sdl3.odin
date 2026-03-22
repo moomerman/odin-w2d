@@ -139,8 +139,8 @@ sdl3_poll_events :: proc() -> bool {
 }
 
 @(private = "file")
-sdl3_get_surface :: proc(instance: wgpu.Instance) -> wgpu.Surface {
-	return sdl3glue.GetSurface(instance, sdl3_window)
+sdl3_get_surface :: proc(instance: rawptr) -> rawptr {
+	return sdl3glue.GetSurface(wgpu.Instance(instance), sdl3_window)
 }
 
 @(private = "file")

@@ -217,7 +217,7 @@ renderer_init :: proc(window: ^core.Window_Backend, on_initialized: proc()) {
 		panic("[renderer/wgpu] WebGPU is not supported")
 	}
 
-	renderer.surface = window.get_surface(renderer.instance)
+	renderer.surface = wgpu.Surface(window.get_surface(renderer.instance))
 
 	wgpu.InstanceRequestAdapter(
 		renderer.instance,

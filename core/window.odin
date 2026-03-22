@@ -1,7 +1,5 @@
 package core
 
-import "vendor:wgpu"
-
 // Window_Backend abstracts over different windowing libraries (SDL3, GLFW, JS).
 // Each backend provides an implementation of these procedures.
 Window_Backend :: struct {
@@ -16,8 +14,9 @@ Window_Backend :: struct {
 	// Poll for window/input events. Returns false when the user has requested to close the window.
 	poll_events:          proc() -> bool,
 
-	// Create a wgpu surface for the window.
-	get_surface:          proc(instance: wgpu.Instance) -> wgpu.Surface,
+	// Create a GPU surface for the window. The instance and return value are
+	// renderer-specific opaque pointers (e.g. wgpu.Instance / wgpu.Surface).
+	get_surface:          proc(instance: rawptr) -> rawptr,
 
 	// Get the framebuffer size in physical pixels.
 	get_framebuffer_size: proc() -> (width: u32, height: u32),

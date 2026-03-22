@@ -117,8 +117,8 @@ glfw_poll_events :: proc() -> bool {
 }
 
 @(private = "file")
-glfw_get_surface :: proc(instance: wgpu.Instance) -> wgpu.Surface {
-	return glfwglue.GetSurface(instance, glfw_window)
+glfw_get_surface :: proc(instance: rawptr) -> rawptr {
+	return glfwglue.GetSurface(wgpu.Instance(instance), glfw_window)
 }
 
 @(private = "file")

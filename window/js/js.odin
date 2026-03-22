@@ -61,9 +61,9 @@ js_poll_events :: proc() -> bool {
 }
 
 @(private = "file")
-js_get_surface :: proc(instance: wgpu.Instance) -> wgpu.Surface {
+js_get_surface :: proc(instance: rawptr) -> rawptr {
 	return wgpu.InstanceCreateSurface(
-		instance,
+		wgpu.Instance(instance),
 		&wgpu.SurfaceDescriptor {
 			nextInChain = &wgpu.SurfaceSourceCanvasHTMLSelector {
 				sType = .SurfaceSourceCanvasHTMLSelector,
