@@ -1,10 +1,10 @@
 package core
 
 Window_Mode :: enum {
-	Windowed,       // Resizable window with title bar
+	Windowed, // Resizable window with title bar
 	Windowed_Fixed, // Non-resizable window with title bar
-	Fullscreen,     // Exclusive fullscreen
-	Borderless,     // Borderless window covering the entire screen
+	Fullscreen, // Exclusive fullscreen
+	Borderless, // Borderless window covering the entire screen
 }
 
 // Window_Backend abstracts over different windowing libraries (SDL3, GLFW, JS).

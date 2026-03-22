@@ -257,7 +257,16 @@ native_poll_events :: proc() -> bool {
 			pos := mouse_pos_from_event(event)
 			dx, dy := event->scrollingDelta()
 			is_momentum := event->momentumPhase() != NS.EventPhaseNone
-			append(&events, core.Event(core.Mouse_Scroll_Event{delta = {f32(dx), f32(dy)}, pos = pos, momentum = is_momentum}))
+			append(
+				&events,
+				core.Event(
+					core.Mouse_Scroll_Event {
+						delta = {f32(dx), f32(dy)},
+						pos = pos,
+						momentum = is_momentum,
+					},
+				),
+			)
 
 		case .MouseMoved, .LeftMouseDragged, .RightMouseDragged, .OtherMouseDragged:
 			pos := mouse_pos_from_event(event)
@@ -340,10 +349,18 @@ native_set_system_cursor :: proc(cursor: core.System_Cursor) {
 		ns_cursor = intrinsics.objc_send(^NS.Cursor, NS.Cursor, "resizeUpDownCursor")
 	case .Resize_NWSE:
 		// Private Apple selector; falls back to arrow if unavailable.
-		ns_cursor = intrinsics.objc_send(^NS.Cursor, NS.Cursor, "_windowResizeNorthWestSouthEastCursor")
+		ns_cursor = intrinsics.objc_send(
+			^NS.Cursor,
+			NS.Cursor,
+			"_windowResizeNorthWestSouthEastCursor",
+		)
 		if ns_cursor == nil do ns_cursor = NS.Cursor_arrowCursor()
 	case .Resize_NESW:
-		ns_cursor = intrinsics.objc_send(^NS.Cursor, NS.Cursor, "_windowResizeNorthEastSouthWestCursor")
+		ns_cursor = intrinsics.objc_send(
+			^NS.Cursor,
+			NS.Cursor,
+			"_windowResizeNorthEastSouthWestCursor",
+		)
 		if ns_cursor == nil do ns_cursor = NS.Cursor_arrowCursor()
 	case .Move:
 		ns_cursor = intrinsics.objc_send(^NS.Cursor, NS.Cursor, "openHandCursor")
@@ -365,9 +382,9 @@ native_set_custom_cursor :: proc(pixels: []u8, w, h, hot_x, hot_y: int) {
 		&planes[0],
 		NS.Integer(w),
 		NS.Integer(h),
-		8,  // bits per sample
-		4,  // samples per pixel (RGBA)
-		true,  // has alpha
+		8, // bits per sample
+		4, // samples per pixel (RGBA)
+		true, // has alpha
 		false, // is planar
 		NS.AT("NSDeviceRGBColorSpace"),
 		NS.Integer(w * 4), // bytes per row

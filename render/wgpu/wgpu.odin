@@ -679,10 +679,10 @@ renderer_push_quad :: proc(
 	h := dst.h
 
 	// Four unique vertices per quad; the index buffer provides triangle connectivity.
-	push_vertex(r, x, y, src_uv[0][0], src_uv[0][1], cr, cg, cb, ca)         // 0: top-left
-	push_vertex(r, x + w, y, src_uv[1][0], src_uv[1][1], cr, cg, cb, ca)     // 1: top-right
+	push_vertex(r, x, y, src_uv[0][0], src_uv[0][1], cr, cg, cb, ca) // 0: top-left
+	push_vertex(r, x + w, y, src_uv[1][0], src_uv[1][1], cr, cg, cb, ca) // 1: top-right
 	push_vertex(r, x + w, y + h, src_uv[2][0], src_uv[2][1], cr, cg, cb, ca) // 2: bottom-right
-	push_vertex(r, x, y + h, src_uv[3][0], src_uv[3][1], cr, cg, cb, ca)     // 3: bottom-left
+	push_vertex(r, x, y + h, src_uv[3][0], src_uv[3][1], cr, cg, cb, ca) // 3: bottom-left
 }
 
 // Push a quad with explicit vertex positions (for rotated/arbitrary quads).

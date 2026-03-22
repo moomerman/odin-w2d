@@ -377,11 +377,27 @@ glfw_scroll_callback :: proc "c" (window: glfw.WindowHandle, xoffset, yoffset: f
 glfw_set_window_mode :: proc(mode: core.Window_Mode) {
 	switch mode {
 	case .Windowed:
-		glfw.SetWindowMonitor(glfw_window, nil, glfw_saved_pos.x, glfw_saved_pos.y, glfw_saved_size.x, glfw_saved_size.y, 0)
+		glfw.SetWindowMonitor(
+			glfw_window,
+			nil,
+			glfw_saved_pos.x,
+			glfw_saved_pos.y,
+			glfw_saved_size.x,
+			glfw_saved_size.y,
+			0,
+		)
 		glfw.SetWindowAttrib(glfw_window, glfw.DECORATED, glfw.TRUE)
 		glfw.SetWindowAttrib(glfw_window, glfw.RESIZABLE, glfw.TRUE)
 	case .Windowed_Fixed:
-		glfw.SetWindowMonitor(glfw_window, nil, glfw_saved_pos.x, glfw_saved_pos.y, glfw_saved_size.x, glfw_saved_size.y, 0)
+		glfw.SetWindowMonitor(
+			glfw_window,
+			nil,
+			glfw_saved_pos.x,
+			glfw_saved_pos.y,
+			glfw_saved_size.x,
+			glfw_saved_size.y,
+			0,
+		)
 		glfw.SetWindowAttrib(glfw_window, glfw.DECORATED, glfw.TRUE)
 		glfw.SetWindowAttrib(glfw_window, glfw.RESIZABLE, glfw.FALSE)
 	case .Fullscreen:
@@ -390,7 +406,15 @@ glfw_set_window_mode :: proc(mode: core.Window_Mode) {
 		glfw_saved_size.x, glfw_saved_size.y = glfw.GetWindowSize(glfw_window)
 		monitor := glfw.GetPrimaryMonitor()
 		vid_mode := glfw.GetVideoMode(monitor)
-		glfw.SetWindowMonitor(glfw_window, monitor, 0, 0, vid_mode.width, vid_mode.height, vid_mode.refresh_rate)
+		glfw.SetWindowMonitor(
+			glfw_window,
+			monitor,
+			0,
+			0,
+			vid_mode.width,
+			vid_mode.height,
+			vid_mode.refresh_rate,
+		)
 	case .Borderless:
 		// Save current position/size for restoring later.
 		glfw_saved_pos.x, glfw_saved_pos.y = glfw.GetWindowPos(glfw_window)
