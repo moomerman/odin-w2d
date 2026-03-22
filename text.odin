@@ -1,6 +1,5 @@
 package engine
 
-import "core"
 import "vendor:fontstash"
 
 FONT_ATLAS_SIZE :: 1024

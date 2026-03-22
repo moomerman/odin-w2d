@@ -925,7 +925,7 @@ renderer_shutdown :: proc() {
 
 	// Destroy any remaining shaders.
 	shader_it := hm.iterator_make(&r.shaders)
-	for entry, handle in hm.iterate(&shader_it) {
+	for _, handle in hm.iterate(&shader_it) {
 		renderer_destroy_shader(handle)
 	}
 	hm.dynamic_destroy(&r.shaders)
