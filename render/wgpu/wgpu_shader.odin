@@ -195,18 +195,18 @@ renderer_set_shader_uniform :: proc(handle: core.Shader_Handle, name: string, va
 @(private = "package")
 renderer_set_shader :: proc(handle: core.Shader_Handle) {
 	r := &renderer
-	if r.active_shader != handle {
+	if r.batch.active_shader != handle {
 		renderer_flush()
-		r.active_shader = handle
+		r.batch.active_shader = handle
 	}
 }
 
 @(private = "package")
 renderer_reset_shader :: proc() {
 	r := &renderer
-	if hm.is_valid(&r.shaders, r.active_shader) {
+	if hm.is_valid(&r.shaders, r.batch.active_shader) {
 		renderer_flush()
-		r.active_shader = {}
+		r.batch.active_shader = {}
 	}
 }
 

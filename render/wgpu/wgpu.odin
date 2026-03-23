@@ -98,87 +98,93 @@ Shader_Entry :: struct {
 	fragment_entry:    string,
 }
 
+// Per-frame transient GPU state, reset at the start of each frame.
 @(private = "package")
-Renderer :: struct {
-	ctx:                    runtime.Context,
-
-	// Reference to the window backend for framebuffer queries.
-	window:                 ^core.Window_Backend,
-
-	// Callback invoked once the GPU device is ready.
-	on_initialized:         proc(),
-
-	// Core wgpu objects
-	instance:               wgpu.Instance,
-	surface:                wgpu.Surface,
-	adapter:                wgpu.Adapter,
-	device:                 wgpu.Device,
-	queue:                  wgpu.Queue,
-	config:                 wgpu.SurfaceConfiguration,
-
-	// Pipeline
-	shader_module:          wgpu.ShaderModule,
-	pipeline_layout:        wgpu.PipelineLayout,
-	pipeline:               wgpu.RenderPipeline,
-
-	// Bind group for projection + sampler + texture
-	bind_group_layout:      wgpu.BindGroupLayout,
-
-	// Projection uniform buffer
-	projection_buffer:      wgpu.Buffer,
-
-	// Sampler
-	sampler:                wgpu.Sampler,
-
-	// Vertex buffer (GPU side)
-	vertex_buffer:          wgpu.Buffer,
-
-	// Index buffer (GPU side, static — generated once at init)
-	index_buffer:           wgpu.Buffer,
-
-	// CPU-side vertex data for batching
-	vertices:               [BATCH_MAX_VERTICES * VERTEX_FLOATS]f32,
-	vertex_count:           int,
-	vertex_buffer_offset:   int, // running offset into GPU vertex buffer across flushes
-
-	// White 1x1 texture used for solid color drawing
-	white_texture:          core.Texture_Handle,
-
-	// Currently bound texture view for batching
-	current_texture_view:   wgpu.TextureView,
-
-	// Current frame state
-	current_bind_group:     wgpu.BindGroup,
-	current_encoder:        wgpu.CommandEncoder,
-	current_pass:           wgpu.RenderPassEncoder,
-	current_surface_tex:    wgpu.SurfaceTexture,
-	current_view:           wgpu.TextureView,
-	frame_active:           bool,
+Frame_State :: struct {
+	encoder:          wgpu.CommandEncoder,
+	pass:             wgpu.RenderPassEncoder,
+	surface_tex:      wgpu.SurfaceTexture,
+	view:             wgpu.TextureView,
+	active:           bool,
 
 	// Bind groups created this frame — released after submit, not mid-pass.
-	frame_bind_groups:      [MAX_BIND_GROUPS_PER_FRAME]wgpu.BindGroup,
-	frame_bind_group_count: int,
+	bind_groups:      [MAX_BIND_GROUPS_PER_FRAME]wgpu.BindGroup,
+	bind_group_count: int,
+}
+
+// Vertex batching state within a frame.
+@(private = "package")
+Batch_State :: struct {
+	vertices:      [BATCH_MAX_VERTICES * VERTEX_FLOATS]f32,
+	vertex_count:  int,
+	buffer_offset: int, // running offset into GPU vertex buffer across flushes
+	texture_view:  wgpu.TextureView, // currently bound texture for batching
+	bind_group:    wgpu.BindGroup, // current projection+sampler+texture bind group
+	active_shader: core.Shader_Handle, // zero-value = default pipeline
+}
+
+@(private = "package")
+Renderer :: struct {
+	ctx:               runtime.Context,
+
+	// Reference to the window backend for framebuffer queries.
+	window:            ^core.Window_Backend,
+
+	// Callback invoked once the GPU device is ready.
+	on_initialized:    proc(),
+
+	// Core wgpu objects
+	instance:          wgpu.Instance,
+	surface:           wgpu.Surface,
+	adapter:           wgpu.Adapter,
+	device:            wgpu.Device,
+	queue:             wgpu.Queue,
+	config:            wgpu.SurfaceConfiguration,
+
+	// Pipeline
+	shader_module:     wgpu.ShaderModule,
+	pipeline_layout:   wgpu.PipelineLayout,
+	pipeline:          wgpu.RenderPipeline,
+
+	// Bind group for projection + sampler + texture
+	bind_group_layout: wgpu.BindGroupLayout,
+
+	// Projection uniform buffer
+	projection_buffer: wgpu.Buffer,
+
+	// Sampler
+	sampler:           wgpu.Sampler,
+
+	// Vertex buffer (GPU side)
+	vertex_buffer:     wgpu.Buffer,
+
+	// Index buffer (GPU side, static — generated once at init)
+	index_buffer:      wgpu.Buffer,
+
+	// White 1x1 texture used for solid color drawing
+	white_texture:     core.Texture_Handle,
 
 	// Dimensions
-	width:                  u32,
-	height:                 u32,
+	width:             u32,
+	height:            u32,
 
 	// Initialization state
-	initialized:            bool,
+	initialized:       bool,
 
 	// Texture handle map
-	textures:               map[core.Texture_Handle]Texture_Entry,
-	next_handle_id:         u64,
+	textures:          map[core.Texture_Handle]Texture_Entry,
+	next_handle_id:    u64,
 
 	// Shader handle map
-	shaders:                hm.Dynamic_Handle_Map(Shader_Entry, core.Shader_Handle),
+	shaders:           hm.Dynamic_Handle_Map(Shader_Entry, core.Shader_Handle),
 
 	// Stats for the current frame being built, and the last completed frame.
-	current_stats:          Renderer_Stats,
-	last_stats:             Renderer_Stats,
+	current_stats:     Renderer_Stats,
+	last_stats:        Renderer_Stats,
 
-	// Active custom shader (zero-value = default pipeline).
-	active_shader:          core.Shader_Handle,
+	// Per-frame and batching state.
+	frame:             Frame_State,
+	batch:             Batch_State,
 }
 
 @(private = "package")
@@ -329,7 +335,7 @@ renderer_on_device_ready :: proc() {
 	// Create vertex buffer (GPU side)
 	r.vertex_buffer = wgpu.DeviceCreateBuffer(
 		r.device,
-		&{label = "Vertex Buffer", usage = {.Vertex, .CopyDst}, size = size_of(r.vertices)},
+		&{label = "Vertex Buffer", usage = {.Vertex, .CopyDst}, size = size_of(r.batch.vertices)},
 	)
 
 	// Create static index buffer — pattern repeats for every quad: 0,1,2, 0,2,3, 4,5,6, 4,6,7, ...
@@ -483,7 +489,7 @@ renderer_shutdown :: proc() {
 	if r.index_buffer != nil {wgpu.BufferRelease(r.index_buffer)}
 	if r.projection_buffer != nil {wgpu.BufferRelease(r.projection_buffer)}
 	if r.sampler != nil {wgpu.SamplerRelease(r.sampler)}
-	if r.current_bind_group != nil {wgpu.BindGroupRelease(r.current_bind_group)}
+	if r.batch.bind_group != nil {wgpu.BindGroupRelease(r.batch.bind_group)}
 	if r.bind_group_layout != nil {wgpu.BindGroupLayoutRelease(r.bind_group_layout)}
 	if r.pipeline != nil {wgpu.RenderPipelineRelease(r.pipeline)}
 	if r.pipeline_layout != nil {wgpu.PipelineLayoutRelease(r.pipeline_layout)}
