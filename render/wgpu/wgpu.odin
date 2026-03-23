@@ -389,54 +389,12 @@ renderer_on_device_ready :: proc() {
 	)
 
 	// Create render pipeline
-	r.pipeline = wgpu.DeviceCreateRenderPipeline(
+	r.pipeline = create_render_pipeline(
 		r.device,
-		&{
-			layout = r.pipeline_layout,
-			vertex = {
-				module      = r.shader_module,
-				entryPoint  = "vs_main",
-				bufferCount = 1,
-				buffers     = &wgpu.VertexBufferLayout {
-					arrayStride    = VERTEX_SIZE,
-					stepMode       = .Vertex,
-					attributeCount = 3,
-					attributes     = raw_data(
-						[]wgpu.VertexAttribute {
-							// position: vec2<f32>
-							{format = .Float32x2, offset = 0, shaderLocation = 0},
-							// texcoord: vec2<f32>
-							{format = .Float32x2, offset = 2 * size_of(f32), shaderLocation = 1},
-							// color: vec4<f32>
-							{format = .Float32x4, offset = 4 * size_of(f32), shaderLocation = 2},
-						},
-					),
-				},
-			},
-			fragment = &{
-				module = r.shader_module,
-				entryPoint = "fs_main",
-				targetCount = 1,
-				targets = &wgpu.ColorTargetState {
-					format = .BGRA8Unorm,
-					blend = &{
-						alpha = {
-							srcFactor = .SrcAlpha,
-							dstFactor = .OneMinusSrcAlpha,
-							operation = .Add,
-						},
-						color = {
-							srcFactor = .SrcAlpha,
-							dstFactor = .OneMinusSrcAlpha,
-							operation = .Add,
-						},
-					},
-					writeMask = wgpu.ColorWriteMaskFlags_All,
-				},
-			},
-			primitive = {topology = .TriangleList, cullMode = .None},
-			multisample = {count = 1, mask = 0xFFFFFFFF},
-		},
+		r.pipeline_layout,
+		r.shader_module,
+		"vs_main",
+		"fs_main",
 	)
 
 	// Create the 1x1 white texture for solid color drawing
@@ -556,4 +514,69 @@ renderer_get_stats :: proc(frame_time: f32) -> core.Stats {
 		textures_alive = s.textures_alive,
 		texture_memory = s.texture_memory,
 	}
+}
+
+//-----------//
+// UTILITIES //
+//-----------//
+
+// Create a render pipeline with the standard vertex layout and alpha-blended color target.
+// Used for both the default pipeline and custom shader pipelines.
+@(private = "package")
+create_render_pipeline :: proc(
+	device: wgpu.Device,
+	layout: wgpu.PipelineLayout,
+	module: wgpu.ShaderModule,
+	vertex_entry: string,
+	fragment_entry: string,
+) -> wgpu.RenderPipeline {
+	return wgpu.DeviceCreateRenderPipeline(
+		device,
+		&{
+			layout = layout,
+			vertex = {
+				module      = module,
+				entryPoint  = vertex_entry,
+				bufferCount = 1,
+				buffers     = &wgpu.VertexBufferLayout {
+					arrayStride    = VERTEX_SIZE,
+					stepMode       = .Vertex,
+					attributeCount = 3,
+					attributes     = raw_data(
+						[]wgpu.VertexAttribute {
+							// position: vec2<f32>
+							{format = .Float32x2, offset = 0, shaderLocation = 0},
+							// texcoord: vec2<f32>
+							{format = .Float32x2, offset = 2 * size_of(f32), shaderLocation = 1},
+							// color: vec4<f32>
+							{format = .Float32x4, offset = 4 * size_of(f32), shaderLocation = 2},
+						},
+					),
+				},
+			},
+			fragment = &{
+				module = module,
+				entryPoint = fragment_entry,
+				targetCount = 1,
+				targets = &wgpu.ColorTargetState {
+					format = .BGRA8Unorm,
+					blend = &{
+						alpha = {
+							srcFactor = .SrcAlpha,
+							dstFactor = .OneMinusSrcAlpha,
+							operation = .Add,
+						},
+						color = {
+							srcFactor = .SrcAlpha,
+							dstFactor = .OneMinusSrcAlpha,
+							operation = .Add,
+						},
+					},
+					writeMask = wgpu.ColorWriteMaskFlags_All,
+				},
+			},
+			primitive = {topology = .TriangleList, cullMode = .None},
+			multisample = {count = 1, mask = 0xFFFFFFFF},
+		},
+	)
 }

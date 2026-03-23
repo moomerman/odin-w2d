@@ -133,51 +133,12 @@ renderer_load_shader :: proc(wgsl_source: string) -> core.Shader_Handle {
 	}
 
 	// Create render pipeline (same vertex layout as default)
-	entry.pipeline = wgpu.DeviceCreateRenderPipeline(
+	entry.pipeline = create_render_pipeline(
 		r.device,
-		&{
-			layout = entry.pipeline_layout,
-			vertex = {
-				module = entry.module,
-				entryPoint = entry.vertex_entry,
-				bufferCount = 1,
-				buffers = &wgpu.VertexBufferLayout {
-					arrayStride = VERTEX_SIZE,
-					stepMode = .Vertex,
-					attributeCount = 3,
-					attributes = raw_data(
-						[]wgpu.VertexAttribute {
-							{format = .Float32x2, offset = 0, shaderLocation = 0},
-							{format = .Float32x2, offset = 2 * size_of(f32), shaderLocation = 1},
-							{format = .Float32x4, offset = 4 * size_of(f32), shaderLocation = 2},
-						},
-					),
-				},
-			},
-			fragment = &{
-				module = entry.module,
-				entryPoint = entry.fragment_entry,
-				targetCount = 1,
-				targets = &wgpu.ColorTargetState {
-					format = .BGRA8Unorm,
-					blend = &{
-						alpha = {
-							srcFactor = .SrcAlpha,
-							dstFactor = .OneMinusSrcAlpha,
-							operation = .Add,
-						},
-						color = {
-							srcFactor = .SrcAlpha,
-							dstFactor = .OneMinusSrcAlpha,
-							operation = .Add,
-						},
-					},
-					writeMask = wgpu.ColorWriteMaskFlags_All,
-				},
-			},
-			primitive = {topology = .TriangleList, cullMode = .None},
-			multisample = {count = 1, mask = 0xFFFFFFFF},
-		},
+		entry.pipeline_layout,
+		entry.module,
+		entry.vertex_entry,
+		entry.fragment_entry,
 	)
 
 	// Store in handle map and return the handle.
