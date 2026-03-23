@@ -12,8 +12,9 @@ Font_Data :: struct {
 
 @(private = "package")
 Text_State :: struct {
-	fs:    fontstash.FontContext,
-	fonts: [dynamic]Font_Data,
+	fs:       fontstash.FontContext,
+	fonts:    [dynamic]Font_Data,
+	rgba_buf: [dynamic]u8, // reusable staging buffer for atlas RGBA expansion
 }
 
 @(private = "package")
@@ -50,6 +51,7 @@ text_shutdown :: proc() {
 		}
 	}
 	delete(text_state.fonts)
+	delete(text_state.rgba_buf)
 	fontstash.Destroy(&text_state.fs)
 }
 
@@ -218,22 +220,23 @@ _update_font :: proc(fd: ^Font_Data) {
 	}
 
 	// Expand single-channel atlas data to RGBA for the dirty region.
-	rgba := make([]u8, dw * dh * 4)
-	defer delete(rgba)
+	// Reuse the persistent staging buffer, growing only when needed.
+	needed := dw * dh * 4
+	resize(&text_state.rgba_buf, needed)
 
 	for row in 0 ..< dh {
 		for col in 0 ..< dw {
 			src_idx := (dy + row) * fs.width + (dx + col)
 			alpha := fs.textureData[src_idx]
 			dst_idx := (row * dw + col) * 4
-			rgba[dst_idx + 0] = 255
-			rgba[dst_idx + 1] = 255
-			rgba[dst_idx + 2] = 255
-			rgba[dst_idx + 3] = alpha
+			text_state.rgba_buf[dst_idx + 0] = 255
+			text_state.rgba_buf[dst_idx + 1] = 255
+			text_state.rgba_buf[dst_idx + 2] = 255
+			text_state.rgba_buf[dst_idx + 3] = alpha
 		}
 	}
 
-	ctx.renderer.update_texture(fd.atlas.handle, rgba, dx, dy, dw, dh)
+	ctx.renderer.update_texture(fd.atlas.handle, text_state.rgba_buf[:needed], dx, dy, dw, dh)
 }
 
 // Called by fontstash when the atlas needs to expand.
