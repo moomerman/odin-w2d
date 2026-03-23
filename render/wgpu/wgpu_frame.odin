@@ -1,0 +1,310 @@
+package renderer_wgpu
+
+import hm "core:container/handle_map"
+import "core:fmt"
+import "vendor:wgpu"
+
+import core "../../core"
+
+// Begin a new frame, clearing the screen with the given color.
+@(private = "package")
+renderer_begin_frame :: proc(color: core.Color) -> bool {
+	r := &renderer
+	if !r.initialized {
+		return false
+	}
+
+	r.vertex_count = 0
+	r.vertex_buffer_offset = 0
+	r.current_texture_view = nil
+	r.current_bind_group = nil
+	r.frame_bind_group_count = 0
+	r.active_shader = {}
+
+	// Reset per-frame stats, carrying over resource counts.
+	r.current_stats = {
+		textures_alive = r.current_stats.textures_alive,
+		texture_memory = r.current_stats.texture_memory,
+	}
+
+	r.current_surface_tex = wgpu.SurfaceGetCurrentTexture(r.surface)
+	switch r.current_surface_tex.status {
+	case .SuccessOptimal, .SuccessSuboptimal:
+	// All good.
+	case .Timeout, .Outdated, .Lost:
+		if r.current_surface_tex.texture != nil {
+			wgpu.TextureRelease(r.current_surface_tex.texture)
+		}
+		renderer_resize()
+		return false
+	case .OutOfMemory, .DeviceLost, .Error:
+		fmt.panicf("[renderer/wgpu] get_current_texture status=%v", r.current_surface_tex.status)
+	}
+
+	r.current_view = wgpu.TextureCreateView(r.current_surface_tex.texture, nil)
+	r.current_encoder = wgpu.DeviceCreateCommandEncoder(r.device, nil)
+
+	cf := color_to_f64(color)
+
+	r.current_pass = wgpu.CommandEncoderBeginRenderPass(
+		r.current_encoder,
+		&{
+			colorAttachmentCount = 1,
+			colorAttachments = &wgpu.RenderPassColorAttachment {
+				view = r.current_view,
+				loadOp = .Clear,
+				storeOp = .Store,
+				depthSlice = wgpu.DEPTH_SLICE_UNDEFINED,
+				clearValue = {cf[0], cf[1], cf[2], cf[3]},
+			},
+		},
+	)
+
+	r.frame_active = true
+	return true
+}
+
+// Flush all batched vertices to the GPU and draw them.
+@(private = "package")
+renderer_flush :: proc() {
+	r := &renderer
+	if r.vertex_count == 0 || !r.frame_active {
+		return
+	}
+
+	// Upload vertex data at the current offset into the GPU buffer.
+	data_size := uint(r.vertex_count * VERTEX_FLOATS * size_of(f32))
+	gpu_offset := uint(r.vertex_buffer_offset * VERTEX_FLOATS * size_of(f32))
+	wgpu.QueueWriteBuffer(r.queue, r.vertex_buffer, u64(gpu_offset), &r.vertices, data_size)
+
+	// Use the custom shader pipeline if active, otherwise the default.
+	if entry, ok := hm.get(&r.shaders, r.active_shader); ok {
+		// Upload dirty uniforms
+		if entry.uniform_dirty && entry.uniform_buffer != nil {
+			wgpu.QueueWriteBuffer(
+				r.queue,
+				entry.uniform_buffer,
+				0,
+				raw_data(entry.uniform_data),
+				uint(entry.uniform_size),
+			)
+			entry.uniform_dirty = false
+		}
+
+		wgpu.RenderPassEncoderSetPipeline(r.current_pass, entry.pipeline)
+		if r.current_bind_group != nil {
+			wgpu.RenderPassEncoderSetBindGroup(r.current_pass, 0, r.current_bind_group)
+		}
+		if entry.bind_group != nil {
+			wgpu.RenderPassEncoderSetBindGroup(r.current_pass, 1, entry.bind_group)
+		}
+	} else {
+		wgpu.RenderPassEncoderSetPipeline(r.current_pass, r.pipeline)
+		if r.current_bind_group != nil {
+			wgpu.RenderPassEncoderSetBindGroup(r.current_pass, 0, r.current_bind_group)
+		}
+	}
+
+	wgpu.RenderPassEncoderSetVertexBuffer(
+		r.current_pass,
+		0,
+		r.vertex_buffer,
+		u64(gpu_offset),
+		u64(data_size),
+	)
+
+	// Bind the static index buffer and draw indexed.
+	// Each quad uses 4 vertices but 6 indices (two triangles).
+	// The vertex buffer binding already offsets to the start of this batch,
+	// so indices always start from 0.
+	quad_count := r.vertex_count / 4
+	index_count := u32(quad_count * 6)
+	wgpu.RenderPassEncoderSetIndexBuffer(
+		r.current_pass,
+		r.index_buffer,
+		.Uint16,
+		0,
+		u64(BATCH_MAX_INDICES * size_of(u16)),
+	)
+	wgpu.RenderPassEncoderDrawIndexed(r.current_pass, index_count, 1, 0, 0, 0)
+
+	r.current_stats.draw_calls += 1
+	r.current_stats.vertices += r.vertex_count
+	r.current_stats.quads += quad_count
+
+	r.vertex_buffer_offset += r.vertex_count
+	r.vertex_count = 0
+}
+
+// End the current frame: flush, end render pass, submit, present.
+@(private = "package")
+renderer_present :: proc() {
+	r := &renderer
+	if !r.frame_active {
+		return
+	}
+
+	renderer_flush()
+
+	wgpu.RenderPassEncoderEnd(r.current_pass)
+	wgpu.RenderPassEncoderRelease(r.current_pass)
+
+	command_buffer := wgpu.CommandEncoderFinish(r.current_encoder, nil)
+	wgpu.QueueSubmit(r.queue, {command_buffer})
+
+	wgpu.CommandBufferRelease(command_buffer)
+	wgpu.CommandEncoderRelease(r.current_encoder)
+
+	wgpu.SurfacePresent(r.surface)
+	when ODIN_ARCH != .wasm32 && ODIN_ARCH != .wasm64p32 {
+		wgpu.DevicePoll(r.device, false, nil)
+	}
+
+	wgpu.TextureViewRelease(r.current_view)
+	wgpu.TextureRelease(r.current_surface_tex.texture)
+
+	// Release all bind groups created this frame now that the GPU is done with them.
+	for i in 0 ..< r.frame_bind_group_count {
+		wgpu.BindGroupRelease(r.frame_bind_groups[i])
+	}
+	r.frame_bind_group_count = 0
+	r.current_bind_group = nil
+
+	// Snapshot stats for the completed frame.
+	r.last_stats = r.current_stats
+
+	r.frame_active = false
+}
+
+// Push a textured quad into the batch.
+@(private = "package")
+renderer_push_quad :: proc(
+	dst: core.Rect,
+	src_uv: [4][2]f32,
+	tex_handle: core.Texture_Handle,
+	color: core.Color,
+) {
+	r := &renderer
+	if !r.frame_active {
+		return
+	}
+
+	entry, ok := &r.textures[tex_handle]
+	if !ok {
+		return
+	}
+
+	// If the texture changed, flush the current batch and rebind.
+	if r.current_texture_view != entry.view {
+		renderer_flush()
+		r.current_texture_view = entry.view
+		bind_texture(entry.view)
+		r.current_stats.texture_switches += 1
+	}
+
+	// If the batch is full, flush.
+	if r.vertex_count + 4 > BATCH_MAX_VERTICES {
+		renderer_flush()
+	}
+
+	cr, cg, cb, ca :=
+		f32(color[0]) / 255.0, f32(color[1]) / 255.0, f32(color[2]) / 255.0, f32(color[3]) / 255.0
+
+	x := dst.x
+	y := dst.y
+	w := dst.w
+	h := dst.h
+
+	// Four unique vertices per quad; the index buffer provides triangle connectivity.
+	push_vertex(r, x, y, src_uv[0][0], src_uv[0][1], cr, cg, cb, ca) // 0: top-left
+	push_vertex(r, x + w, y, src_uv[1][0], src_uv[1][1], cr, cg, cb, ca) // 1: top-right
+	push_vertex(r, x + w, y + h, src_uv[2][0], src_uv[2][1], cr, cg, cb, ca) // 2: bottom-right
+	push_vertex(r, x, y + h, src_uv[3][0], src_uv[3][1], cr, cg, cb, ca) // 3: bottom-left
+}
+
+// Push a quad with explicit vertex positions (for rotated/arbitrary quads).
+@(private = "package")
+renderer_push_quad_ex :: proc(
+	positions: [4]core.Vec2,
+	src_uv: [4][2]f32,
+	tex_handle: core.Texture_Handle,
+	color: core.Color,
+) {
+	r := &renderer
+	if !r.frame_active {
+		return
+	}
+
+	entry, ok := &r.textures[tex_handle]
+	if !ok {
+		return
+	}
+
+	if r.current_texture_view != entry.view {
+		renderer_flush()
+		r.current_texture_view = entry.view
+		bind_texture(entry.view)
+		r.current_stats.texture_switches += 1
+	}
+
+	if r.vertex_count + 4 > BATCH_MAX_VERTICES {
+		renderer_flush()
+	}
+
+	cr, cg, cb, ca :=
+		f32(color[0]) / 255.0, f32(color[1]) / 255.0, f32(color[2]) / 255.0, f32(color[3]) / 255.0
+
+	// Four unique vertices per quad; the index buffer provides triangle connectivity.
+	push_vertex(r, positions[0].x, positions[0].y, src_uv[0][0], src_uv[0][1], cr, cg, cb, ca)
+	push_vertex(r, positions[1].x, positions[1].y, src_uv[1][0], src_uv[1][1], cr, cg, cb, ca)
+	push_vertex(r, positions[2].x, positions[2].y, src_uv[2][0], src_uv[2][1], cr, cg, cb, ca)
+	push_vertex(r, positions[3].x, positions[3].y, src_uv[3][0], src_uv[3][1], cr, cg, cb, ca)
+}
+
+@(private = "file")
+push_vertex :: proc(r: ^Renderer, px, py, u, v, cr, cg, cb, ca: f32) {
+	base := r.vertex_count * VERTEX_FLOATS
+	r.vertices[base + 0] = px
+	r.vertices[base + 1] = py
+	r.vertices[base + 2] = u
+	r.vertices[base + 3] = v
+	r.vertices[base + 4] = cr
+	r.vertices[base + 5] = cg
+	r.vertices[base + 6] = cb
+	r.vertices[base + 7] = ca
+	r.vertex_count += 1
+}
+
+@(private = "file")
+bind_texture :: proc(tex_view: wgpu.TextureView) {
+	r := &renderer
+
+	r.current_bind_group = wgpu.DeviceCreateBindGroup(
+		r.device,
+		&{
+			layout = r.bind_group_layout,
+			entryCount = 3,
+			entries = raw_data(
+				[]wgpu.BindGroupEntry {
+					{binding = 0, buffer = r.projection_buffer, size = size_of(matrix[4, 4]f32)},
+					{binding = 1, sampler = r.sampler},
+					{binding = 2, textureView = tex_view},
+				},
+			),
+		},
+	)
+
+	// Track for deferred release after frame submit.
+	assert(
+		r.frame_bind_group_count < MAX_BIND_GROUPS_PER_FRAME,
+		"Too many texture switches in one frame",
+	)
+	r.frame_bind_groups[r.frame_bind_group_count] = r.current_bind_group
+	r.frame_bind_group_count += 1
+}
+
+// Helper to convert Color ([4]u8) to [4]f64 for wgpu clear values.
+@(private = "file")
+color_to_f64 :: proc(c: core.Color) -> [4]f64 {
+	return {f64(c[0]) / 255.0, f64(c[1]) / 255.0, f64(c[2]) / 255.0, f64(c[3]) / 255.0}
+}
