@@ -184,32 +184,10 @@ renderer_push_quad :: proc(
 	tex_handle: core.Texture_Handle,
 	color: core.Color,
 ) {
-	r := &renderer
-	if !r.frame_active {
-		return
-	}
+	r := prepare_quad(tex_handle)
+	if r == nil {return}
 
-	entry, ok := &r.textures[tex_handle]
-	if !ok {
-		return
-	}
-
-	// If the texture changed, flush the current batch and rebind.
-	if r.current_texture_view != entry.view {
-		renderer_flush()
-		r.current_texture_view = entry.view
-		bind_texture(entry.view)
-		r.current_stats.texture_switches += 1
-	}
-
-	// If the batch is full, flush.
-	if r.vertex_count + 4 > BATCH_MAX_VERTICES {
-		renderer_flush()
-	}
-
-	cr, cg, cb, ca :=
-		f32(color[0]) / 255.0, f32(color[1]) / 255.0, f32(color[2]) / 255.0, f32(color[3]) / 255.0
-
+	cr, cg, cb, ca := color_to_f32(color)
 	x := dst.x
 	y := dst.y
 	w := dst.w
@@ -230,14 +208,31 @@ renderer_push_quad_ex :: proc(
 	tex_handle: core.Texture_Handle,
 	color: core.Color,
 ) {
+	r := prepare_quad(tex_handle)
+	if r == nil {return}
+
+	cr, cg, cb, ca := color_to_f32(color)
+
+	// Four unique vertices per quad; the index buffer provides triangle connectivity.
+	push_vertex(r, positions[0].x, positions[0].y, src_uv[0][0], src_uv[0][1], cr, cg, cb, ca)
+	push_vertex(r, positions[1].x, positions[1].y, src_uv[1][0], src_uv[1][1], cr, cg, cb, ca)
+	push_vertex(r, positions[2].x, positions[2].y, src_uv[2][0], src_uv[2][1], cr, cg, cb, ca)
+	push_vertex(r, positions[3].x, positions[3].y, src_uv[3][0], src_uv[3][1], cr, cg, cb, ca)
+}
+
+// Shared setup for push_quad and push_quad_ex: check frame active, look up texture,
+// flush on texture change or batch full. Returns the renderer pointer, or nil if
+// the quad should be skipped.
+@(private = "file")
+prepare_quad :: proc(tex_handle: core.Texture_Handle) -> ^Renderer {
 	r := &renderer
 	if !r.frame_active {
-		return
+		return nil
 	}
 
 	entry, ok := &r.textures[tex_handle]
 	if !ok {
-		return
+		return nil
 	}
 
 	if r.current_texture_view != entry.view {
@@ -251,14 +246,13 @@ renderer_push_quad_ex :: proc(
 		renderer_flush()
 	}
 
-	cr, cg, cb, ca :=
-		f32(color[0]) / 255.0, f32(color[1]) / 255.0, f32(color[2]) / 255.0, f32(color[3]) / 255.0
+	return r
+}
 
-	// Four unique vertices per quad; the index buffer provides triangle connectivity.
-	push_vertex(r, positions[0].x, positions[0].y, src_uv[0][0], src_uv[0][1], cr, cg, cb, ca)
-	push_vertex(r, positions[1].x, positions[1].y, src_uv[1][0], src_uv[1][1], cr, cg, cb, ca)
-	push_vertex(r, positions[2].x, positions[2].y, src_uv[2][0], src_uv[2][1], cr, cg, cb, ca)
-	push_vertex(r, positions[3].x, positions[3].y, src_uv[3][0], src_uv[3][1], cr, cg, cb, ca)
+// Convert Color ([4]u8) to four f32 components.
+@(private = "file")
+color_to_f32 :: proc(c: core.Color) -> (r, g, b, a: f32) {
+	return f32(c[0]) / 255.0, f32(c[1]) / 255.0, f32(c[2]) / 255.0, f32(c[3]) / 255.0
 }
 
 @(private = "file")
