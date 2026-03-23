@@ -20,6 +20,12 @@ build-debug:
 build-release:
     odin build examples/{{example}} -o:aggressive -out:{{example}}
 
+build-web:
+    odin run tools/build_web -- examples/{{example}}
+
+build-web-serve:
+    odin run tools/build_web -- examples/{{example}} --serve
+
 check-example:
     odin check examples/{{example}} {{vet_flags}} -vet-packages:main,game
 
