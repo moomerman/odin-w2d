@@ -101,9 +101,7 @@ get_screen_size :: proc() -> (int, int) {
 
 // Set the window mode (windowed, fixed-size, fullscreen, or borderless).
 set_window_mode :: proc(mode: Window_Mode) {
-	if ctx.window.set_window_mode != nil {
-		ctx.window.set_window_mode(mode)
-	}
+	ctx.window.set_window_mode(mode)
 }
 
 // Returns rendering statistics for the most recently completed frame.
@@ -135,9 +133,7 @@ on_window_resize :: proc() {
 // Shut down the engine. Called internally after the user's shutdown_proc.
 @(private = "package")
 engine_shutdown :: proc() {
-	if ctx.audio.shutdown != nil {
-		ctx.audio.shutdown()
-	}
+	ctx.audio.shutdown()
 	text_shutdown()
 	ctx.renderer.shutdown()
 	ctx.window.shutdown()

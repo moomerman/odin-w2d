@@ -152,28 +152,20 @@ key_is_held :: proc(key: Key) -> bool {
 
 // Show the OS cursor.
 show_cursor :: proc() {
-	if ctx.window.set_cursor_visible != nil {
-		ctx.window.set_cursor_visible(true)
-	}
+	ctx.window.set_cursor_visible(true)
 }
 
 // Hide the OS cursor.
 hide_cursor :: proc() {
-	if ctx.window.set_cursor_visible != nil {
-		ctx.window.set_cursor_visible(false)
-	}
+	ctx.window.set_cursor_visible(false)
 }
 
 // Set the cursor to a system cursor shape.
 set_cursor :: proc(cursor: System_Cursor) {
-	if ctx.window.set_system_cursor != nil {
-		ctx.window.set_system_cursor(cursor)
-	}
+	ctx.window.set_system_cursor(cursor)
 }
 
 // Set a custom cursor from RGBA pixel data.
 set_custom_cursor :: proc(pixels: []u8, width, height: int, hot_x: int = 0, hot_y: int = 0) {
-	if ctx.window.set_custom_cursor != nil {
-		ctx.window.set_custom_cursor(pixels, width, height, hot_x, hot_y)
-	}
+	ctx.window.set_custom_cursor(pixels, width, height, hot_x, hot_y)
 }
