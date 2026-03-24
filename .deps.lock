@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "github.com/moomerman/odin-navmesh": {
+      "ref": "main",
+      "sha": "180c33d4fd15ab947651140f0dde74aeadfdd20a",
+      "hash": "2adb632158977c4c98d5af8c400f1027eb60988e3daa671486a6aa4abf7590af"
+    }
+  }
+}

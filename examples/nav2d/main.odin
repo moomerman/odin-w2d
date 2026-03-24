@@ -2,13 +2,15 @@
 // Press M to toggle navmesh wireframe.
 package main
 
+import "core:math"
+
 import w "../.."
-import "../../nav2d"
+import nav "../../.deps/github.com/moomerman/odin-navmesh"
 
 SPEED :: 250.0
 ARRIVE_DIST :: 3.0
 
-mesh: nav2d.Nav_Mesh
+mesh: nav.Nav_Mesh
 bake_ok: bool
 char_pos: [2]f32
 current_path: [][2]f32
@@ -33,8 +35,8 @@ init :: proc() {
 	table := [][2]f32{{120, 480}, {120, 610}, {360, 610}, {360, 480}}
 	plant := [][2]f32{{950, 500}, {950, 620}, {1050, 620}, {1050, 500}}
 
-	err: nav2d.Bake_Error
-	mesh, err = nav2d.bake(room, {desk, shelf, couch, table, plant})
+	err: nav.Bake_Error
+	mesh, err = nav.bake(room, {desk, shelf, couch, table, plant})
 	bake_ok = err == .None
 
 	char_pos = {80, 360}
@@ -56,12 +58,12 @@ frame :: proc(dt: f32) {
 		click := w.get_mouse_position()
 		target: [2]f32 = click
 
-		if !nav2d.point_in_mesh(&mesh, target) {
-			target = nav2d.nearest_point_on_mesh_boundary(&mesh, target)
+		if !nav.point_in_mesh(&mesh, target) {
+			target = nav.nearest_point_on_mesh_boundary(&mesh, target)
 		}
 
 		if current_path != nil do delete(current_path)
-		current_path = nav2d.find_path(&mesh, char_pos, target)
+		current_path = nav.find_path(&mesh, char_pos, target)
 		path_idx = 0
 	}
 
@@ -69,7 +71,7 @@ frame :: proc(dt: f32) {
 	if current_path != nil && path_idx < len(current_path) {
 		wp := current_path[path_idx]
 		dir := wp - char_pos
-		dist := nav2d.length2d(dir)
+		dist := math.sqrt(nav.dot2d(dir, dir))
 
 		if dist < ARRIVE_DIST {
 			path_idx += 1
@@ -138,7 +140,7 @@ frame :: proc(dt: f32) {
 
 	// Mouse hover — green dot if walkable, red if not.
 	mouse := w.get_mouse_position()
-	walkable := nav2d.point_in_mesh(&mesh, mouse)
+	walkable := nav.point_in_mesh(&mesh, mouse)
 	dot_color := walkable ? w.Color{80, 200, 100, 200} : w.Color{200, 80, 80, 200}
 	w.draw_rect({mouse.x - 2, mouse.y - 2, 4, 4}, dot_color)
 
@@ -151,7 +153,7 @@ frame :: proc(dt: f32) {
 
 shutdown :: proc() {
 	if current_path != nil do delete(current_path)
-	nav2d.destroy(&mesh)
+	nav.destroy(&mesh)
 }
 
 @(private = "file")
@@ -159,10 +161,10 @@ _draw_obstacle :: proc(rect: w.Rect, label: string) {
 	w.draw_rect(rect, {32, 35, 45, 255})
 	w.draw_rect_outline(rect, 2, {72, 78, 98, 255})
 	text_size := w.measure_text(label, 14)
-	w.draw_text(
-		label,
-		{rect.x + (rect.w - text_size.x) / 2, rect.y + (rect.h - text_size.y) / 2},
-		14,
-		{85, 90, 108, 255},
-	)
+	// w.draw_text(
+	// 	label,
+	// 	{rect.x + (rect.w - text_size.x) / 2, rect.y + (rect.h - text_size.y) / 2},
+	// 	14,
+	// 	{85, 90, 108, 255},
+	// )
 }
