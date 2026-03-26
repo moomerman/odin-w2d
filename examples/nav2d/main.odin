@@ -160,7 +160,7 @@ shutdown :: proc() {
 _draw_obstacle :: proc(rect: w.Rect, label: string) {
 	w.draw_rect(rect, {32, 35, 45, 255})
 	w.draw_rect_outline(rect, 2, {72, 78, 98, 255})
-	text_size := w.measure_text(label, 14)
+	// text_size := w.measure_text(label, 14)
 	// w.draw_text(
 	// 	label,
 	// 	{rect.x + (rect.w - text_size.x) / 2, rect.y + (rect.h - text_size.y) / 2},
