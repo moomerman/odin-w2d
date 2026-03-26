@@ -133,6 +133,9 @@ renderer_flush :: proc() {
 	r.current_stats.quads += quad_count
 
 	r.batch.buffer_offset += r.batch.vertex_count
+	if r.batch.buffer_offset + BATCH_MAX_VERTICES > BATCH_MAX_VERTICES * GPU_BUFFER_BATCHES {
+		r.batch.buffer_offset = 0
+	}
 	r.batch.vertex_count = 0
 }
 

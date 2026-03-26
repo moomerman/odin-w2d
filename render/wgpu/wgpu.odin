@@ -26,6 +26,12 @@ VERTEX_FLOATS :: 8
 @(private = "package")
 VERTEX_SIZE :: VERTEX_FLOATS * size_of(f32)
 
+// The GPU vertex buffer holds multiple batches so that each flush within a
+// frame writes to a distinct region (wgpu stages all writes before execution,
+// so reusing the same offset would corrupt earlier draw calls).
+@(private = "package")
+GPU_BUFFER_BATCHES :: 8
+
 @(private = "package")
 MAX_BIND_GROUPS_PER_FRAME :: 256
 
@@ -342,7 +348,11 @@ renderer_on_device_ready :: proc() {
 	// Create vertex buffer (GPU side)
 	r.vertex_buffer = wgpu.DeviceCreateBuffer(
 		r.device,
-		&{label = "Vertex Buffer", usage = {.Vertex, .CopyDst}, size = size_of(r.batch.vertices)},
+		&{
+			label = "Vertex Buffer",
+			usage = {.Vertex, .CopyDst},
+			size = size_of(r.batch.vertices) * GPU_BUFFER_BATCHES,
+		},
 	)
 
 	// Create static index buffer — pattern repeats for every quad: 0,1,2, 0,2,3, 4,5,6, 4,6,7, ...
