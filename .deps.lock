@@ -1,5 +1,10 @@
 {
   "dependencies": {
+    "github.com/moomerman/odin-slug": {
+      "ref": "wgpu-backend",
+      "sha": "db8db6977fdc56f9642b0ffd24eb6825247196bd",
+      "hash": "838289272f1533b9385fdbadc01c39fb470b901ffffe34588feb2d8946160435"
+    },
     "github.com/moomerman/odin-navmesh": {
       "ref": "main",
       "sha": "3aa92199454b87a660ad0b72fe85be99314877b2",

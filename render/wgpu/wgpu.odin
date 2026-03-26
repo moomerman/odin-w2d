@@ -125,66 +125,69 @@ Batch_State :: struct {
 
 @(private = "package")
 Renderer :: struct {
-	ctx:               runtime.Context,
+	ctx:                  runtime.Context,
 
 	// Reference to the window backend for framebuffer queries.
-	window:            ^core.Window_Backend,
+	window:               ^core.Window_Backend,
 
 	// Callback invoked once the GPU device is ready.
-	on_initialized:    proc(),
+	on_initialized:       proc(),
 
 	// Core wgpu objects
-	instance:          wgpu.Instance,
-	surface:           wgpu.Surface,
-	adapter:           wgpu.Adapter,
-	device:            wgpu.Device,
-	queue:             wgpu.Queue,
-	config:            wgpu.SurfaceConfiguration,
+	instance:             wgpu.Instance,
+	surface:              wgpu.Surface,
+	adapter:              wgpu.Adapter,
+	device:               wgpu.Device,
+	queue:                wgpu.Queue,
+	config:               wgpu.SurfaceConfiguration,
 
 	// Pipeline
-	shader_module:     wgpu.ShaderModule,
-	pipeline_layout:   wgpu.PipelineLayout,
-	pipeline:          wgpu.RenderPipeline,
+	shader_module:        wgpu.ShaderModule,
+	pipeline_layout:      wgpu.PipelineLayout,
+	pipeline:             wgpu.RenderPipeline,
 
 	// Bind group for projection + sampler + texture
-	bind_group_layout: wgpu.BindGroupLayout,
+	bind_group_layout:    wgpu.BindGroupLayout,
 
 	// Projection uniform buffer
-	projection_buffer: wgpu.Buffer,
+	projection_buffer:    wgpu.Buffer,
 
 	// Sampler
-	sampler:           wgpu.Sampler,
+	sampler:              wgpu.Sampler,
 
 	// Vertex buffer (GPU side)
-	vertex_buffer:     wgpu.Buffer,
+	vertex_buffer:        wgpu.Buffer,
 
 	// Index buffer (GPU side, static — generated once at init)
-	index_buffer:      wgpu.Buffer,
+	index_buffer:         wgpu.Buffer,
 
 	// White 1x1 texture used for solid color drawing
-	white_texture:     core.Texture_Handle,
+	white_texture:        core.Texture_Handle,
 
 	// Dimensions
-	width:             u32,
-	height:            u32,
+	width:                u32,
+	height:               u32,
 
 	// Initialization state
-	initialized:       bool,
+	initialized:          bool,
 
 	// Texture handle map
-	textures:          map[core.Texture_Handle]Texture_Entry,
-	next_handle_id:    u64,
+	textures:             map[core.Texture_Handle]Texture_Entry,
+	next_handle_id:       u64,
 
 	// Shader handle map
-	shaders:           hm.Dynamic_Handle_Map(Shader_Entry, core.Shader_Handle),
+	shaders:              hm.Dynamic_Handle_Map(Shader_Entry, core.Shader_Handle),
 
 	// Stats for the current frame being built, and the last completed frame.
-	current_stats:     Renderer_Stats,
-	last_stats:        Renderer_Stats,
+	current_stats:        Renderer_Stats,
+	last_stats:           Renderer_Stats,
 
 	// Per-frame and batching state.
-	frame:             Frame_State,
-	batch:             Batch_State,
+	frame:                Frame_State,
+	batch:                Batch_State,
+
+	// Optional callback invoked after engine flush, before render pass ends.
+	pre_present_callback: proc(pass: rawptr, width, height: u32),
 }
 
 @(private = "package")
@@ -217,6 +220,10 @@ backend :: proc() -> core.Render_Backend {
 		set_shader = renderer_set_shader,
 		reset_shader = renderer_reset_shader,
 		destroy_shader = renderer_destroy_shader,
+		get_gpu_device = renderer_get_gpu_device,
+		get_gpu_queue = renderer_get_gpu_queue,
+		get_surface_format = renderer_get_surface_format,
+		set_pre_present_callback = renderer_set_pre_present_callback,
 	}
 }
 
@@ -520,6 +527,30 @@ renderer_get_stats :: proc(frame_time: f32) -> core.Stats {
 		textures_alive = s.textures_alive,
 		texture_memory = s.texture_memory,
 	}
+}
+
+//----------------------//
+// GPU HANDLE ACCESSORS //
+//----------------------//
+
+@(private = "file")
+renderer_get_gpu_device :: proc() -> rawptr {
+	return renderer.device
+}
+
+@(private = "file")
+renderer_get_gpu_queue :: proc() -> rawptr {
+	return renderer.queue
+}
+
+@(private = "file")
+renderer_get_surface_format :: proc() -> u32 {
+	return u32(renderer.config.format)
+}
+
+@(private = "file")
+renderer_set_pre_present_callback :: proc(callback: proc(pass: rawptr, width, height: u32)) {
+	renderer.pre_present_callback = callback
 }
 
 //-----------//

@@ -146,6 +146,10 @@ renderer_present :: proc() {
 
 	renderer_flush()
 
+	if r.pre_present_callback != nil {
+		r.pre_present_callback(r.frame.pass, r.width, r.height)
+	}
+
 	wgpu.RenderPassEncoderEnd(r.frame.pass)
 	wgpu.RenderPassEncoderRelease(r.frame.pass)
 

@@ -109,6 +109,27 @@ get_stats :: proc() -> Stats {
 	return ctx.renderer.get_stats(ctx.frame_time)
 }
 
+// Return the underlying GPU device handle. For the wgpu backend this is a wgpu.Device.
+get_gpu_device :: proc() -> rawptr {
+	return ctx.renderer.get_gpu_device()
+}
+
+// Return the underlying GPU queue handle. For the wgpu backend this is a wgpu.Queue.
+get_gpu_queue :: proc() -> rawptr {
+	return ctx.renderer.get_gpu_queue()
+}
+
+// Return the surface texture format as a u32 (cast to your backend's format enum).
+get_surface_format :: proc() -> u32 {
+	return ctx.renderer.get_surface_format()
+}
+
+// Set a callback invoked after engine flush but before the render pass ends.
+// Use this for custom renderers that need to draw into the same render pass.
+set_pre_present_callback :: proc(callback: proc(pass: rawptr, width, height: u32)) {
+	ctx.renderer.set_pre_present_callback(callback)
+}
+
 // Called by the render backend once the GPU device is ready.
 // On desktop this fires synchronously during init(); on web it fires
 // asynchronously once the adapter/device callbacks complete.
