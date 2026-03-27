@@ -15,6 +15,7 @@ package build_web
 
 import "core:fmt"
 import "core:os"
+import "core:path/filepath"
 import "core:strings"
 import "core:sys/posix"
 
@@ -53,10 +54,11 @@ main :: proc() {
 
 	INDEX_TEMPLATE :: string(#load("index_template.html"))
 
-	// Resolve the target directory relative to the build_web package's parent ().
-	// The tool is run from the project root, so we need to prepend .
-	wgpu_dir := ""
-	target_dir := path_join({wgpu_dir, dir})
+	// Derive the project root from this source file's location (tools/build_web/).
+	project_root := filepath.dir(filepath.dir(filepath.dir(#file)))
+
+	// Resolve the target directory relative to CWD (the user passes a relative path).
+	target_dir := dir
 
 	dir_handle, dir_handle_err := os.open(target_dir)
 	fmt.ensuref(
@@ -115,7 +117,7 @@ main :: proc() {
 	fmt.printfln("Copied wgpu.js")
 
 	// Copy audio_webaudio.js
-	audio_js_path := path_join({wgpu_dir, "audio", "webaudio", "audio_webaudio.js"})
+	audio_js_path := path_join({project_root, "audio", "webaudio", "audio_webaudio.js"})
 	if os.exists(audio_js_path) {
 		os.copy_file(path_join({bin_web_dir, "audio_webaudio.js"}), audio_js_path)
 		fmt.printfln("Copied audio_webaudio.js")
