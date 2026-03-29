@@ -102,6 +102,10 @@ Render_Backend :: struct {
 	// For the wgpu backend this is a wgpu.TextureFormat.
 	get_surface_format:       proc() -> u32,
 
+	// Upload a combined view-projection matrix to the GPU uniform buffer.
+	// Used by the camera system to apply camera transforms.
+	set_view_projection:      proc(m: matrix[4, 4]f32),
+
 	// Set a callback invoked after the final engine flush but before the render
 	// pass ends. Custom renderers (e.g. slug text) use this to draw into the
 	// same render pass. The callback receives the render pass handle and

@@ -24,6 +24,9 @@ Context :: struct {
 	prev_frame_time: time.Time,
 	frame_time:      f32, // seconds since last frame
 	elapsed_time:    f64, // seconds since init
+
+	// Camera
+	camera:          Maybe(Camera),
 }
 
 @(private = "package")
@@ -148,6 +151,10 @@ on_renderer_initialized :: proc() {
 on_window_resize :: proc() {
 	if ctx.renderer.is_initialized() {
 		ctx.renderer.resize()
+		// Re-apply camera transform after resize resets the projection.
+		if ctx.camera != nil {
+			upload_view_projection()
+		}
 	}
 }
 

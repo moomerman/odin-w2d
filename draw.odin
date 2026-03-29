@@ -10,6 +10,11 @@ import "core:math"
 // Clear the screen with a solid color. Call once at the start of each frame's drawing.
 clear :: proc(color: Color) {
 	ctx.renderer.begin_frame(color)
+	// Re-apply camera view_projection in case the projection was reset by a resize
+	// (e.g. surface lost during begin_frame). This is a cheap 64-byte buffer write.
+	if ctx.camera != nil {
+		upload_view_projection()
+	}
 }
 
 // Present the frame to the screen. Call once at the end of each frame's drawing.

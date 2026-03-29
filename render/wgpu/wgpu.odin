@@ -35,6 +35,17 @@ GPU_BUFFER_BATCHES :: 8
 @(private = "package")
 MAX_BIND_GROUPS_PER_FRAME :: 256
 
+// The projection buffer holds multiple view-projection matrices so that
+// mid-frame camera changes (e.g. world → UI) each get their own slot.
+// Same principle as GPU_BUFFER_BATCHES for vertices.
+// Each slot is aligned to 256 bytes (wgpu min_uniform_buffer_offset_alignment).
+@(private = "package")
+MAX_PROJECTION_SLOTS :: 32
+@(private = "package")
+PROJECTION_SLOT_STRIDE :: 256 // must be >= min_uniform_buffer_offset_alignment
+@(private = "package")
+PROJECTION_MATRIX_SIZE :: size_of(matrix[4, 4]f32)
+
 //-------//
 // TYPES //
 //-------//
@@ -155,8 +166,10 @@ Renderer :: struct {
 	// Bind group for projection + sampler + texture
 	bind_group_layout:    wgpu.BindGroupLayout,
 
-	// Projection uniform buffer
+	// Projection uniform buffer (holds MAX_PROJECTION_SLOTS matrices)
 	projection_buffer:    wgpu.Buffer,
+	projection_offset:    u64, // byte offset of the current slot
+	projection_slot:      int, // next slot to write to
 
 	// Sampler
 	sampler:              wgpu.Sampler,
@@ -229,6 +242,7 @@ backend :: proc() -> core.Render_Backend {
 		get_gpu_device = renderer_get_gpu_device,
 		get_gpu_queue = renderer_get_gpu_queue,
 		get_surface_format = renderer_get_surface_format,
+		set_view_projection = renderer_set_view_projection,
 		set_pre_present_callback = renderer_set_pre_present_callback,
 	}
 }
@@ -335,13 +349,13 @@ renderer_on_device_ready :: proc() {
 		},
 	)
 
-	// Create projection uniform buffer
+	// Create projection uniform buffer (multi-slot for mid-frame camera changes)
 	r.projection_buffer = wgpu.DeviceCreateBuffer(
 		r.device,
 		&{
 			label = "Projection Uniform Buffer",
 			usage = {.Uniform, .CopyDst},
-			size = size_of(matrix[4, 4]f32),
+			size = PROJECTION_SLOT_STRIDE * MAX_PROJECTION_SLOTS,
 		},
 	)
 
@@ -443,7 +457,10 @@ renderer_on_device_ready :: proc() {
 renderer_update_projection :: proc() {
 	r := &renderer
 	projection := linalg.matrix_ortho3d_f32(0, f32(r.width), f32(r.height), 0, -1, 1)
+	// Write to slot 0 and reset the slot counter. Called at init and on resize.
 	wgpu.QueueWriteBuffer(r.queue, r.projection_buffer, 0, &projection, size_of(projection))
+	r.projection_offset = 0
+	r.projection_slot = 1
 }
 
 @(private = "package")
@@ -556,6 +573,23 @@ renderer_get_gpu_queue :: proc() -> rawptr {
 @(private = "file")
 renderer_get_surface_format :: proc() -> u32 {
 	return u32(renderer.config.format)
+}
+
+@(private = "file")
+renderer_set_view_projection :: proc(m: matrix[4, 4]f32) {
+	r := &renderer
+	if !r.initialized {
+		return
+	}
+	assert(r.projection_slot < MAX_PROJECTION_SLOTS, "Too many camera changes in one frame")
+	offset := u64(r.projection_slot) * PROJECTION_SLOT_STRIDE
+	m := m
+	wgpu.QueueWriteBuffer(r.queue, r.projection_buffer, offset, &m, size_of(m))
+	r.projection_offset = offset
+	r.projection_slot += 1
+	// Invalidate the current bind group so the next draw call creates a new one
+	// referencing the updated projection offset.
+	r.batch.texture_view = nil
 }
 
 @(private = "file")

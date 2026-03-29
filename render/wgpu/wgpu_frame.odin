@@ -20,6 +20,8 @@ renderer_begin_frame :: proc(color: core.Color) -> bool {
 	r.batch.bind_group = nil
 	r.frame.bind_group_count = 0
 	r.batch.active_shader = {}
+	r.projection_slot = 0
+	r.projection_offset = 0
 
 	// Reset per-frame stats, carrying over resource counts.
 	r.current_stats = {
@@ -287,7 +289,12 @@ bind_texture :: proc(tex_view: wgpu.TextureView) {
 			entryCount = 3,
 			entries = raw_data(
 				[]wgpu.BindGroupEntry {
-					{binding = 0, buffer = r.projection_buffer, size = size_of(matrix[4, 4]f32)},
+					{
+						binding = 0,
+						buffer = r.projection_buffer,
+						offset = r.projection_offset,
+						size = PROJECTION_MATRIX_SIZE,
+					},
 					{binding = 1, sampler = r.sampler},
 					{binding = 2, textureView = tex_view},
 				},

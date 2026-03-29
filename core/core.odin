@@ -58,3 +58,15 @@ YELLOW :: Color{253, 249, 0, 255}
 PURPLE :: Color{200, 122, 255, 255}
 MAGENTA :: Color{255, 0, 255, 255}
 BROWN :: Color{127, 106, 79, 255}
+
+
+//----------//
+// CAMERA   //
+//----------//
+
+Camera :: struct {
+	target:   Vec2, // world point the camera looks at
+	offset:   Vec2, // screen offset (set to screen_center to center the target)
+	rotation: f32, // radians
+	zoom:     f32, // 1.0 = normal, >1 = zoomed in
+}

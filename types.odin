@@ -16,6 +16,7 @@ Font :: core.Font
 Vec2 :: core.Vec2
 Rect :: core.Rect
 Color :: core.Color
+Camera :: core.Camera
 Texture :: core.Texture
 Shader :: core.Shader
 Stats :: core.Stats
