@@ -152,7 +152,8 @@ renderer_present :: proc() {
 	renderer_flush()
 
 	if r.pre_present_callback != nil {
-		r.pre_present_callback(r.frame.pass, r.width, r.height)
+		lw, lh := r.window.get_window_size()
+		r.pre_present_callback(r.frame.pass, lw, lh)
 	}
 
 	wgpu.RenderPassEncoderEnd(r.frame.pass)
