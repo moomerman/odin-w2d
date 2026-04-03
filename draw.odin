@@ -145,7 +145,7 @@ draw_stats :: proc() {
 		stats_text = string(stats_text_buf[:len(n)])
 	}
 
-	w, h := ctx.window.get_framebuffer_size()
+	w, h := ctx.window.get_window_size()
 	screen_w := f32(w)
 	screen_h := f32(h)
 

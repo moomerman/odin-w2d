@@ -34,6 +34,7 @@ backend :: proc() -> core.Window_Backend {
 		poll_events = sdl3_poll_events,
 		get_surface = sdl3_get_surface,
 		get_framebuffer_size = sdl3_get_framebuffer_size,
+		get_window_size = sdl3_get_window_size,
 		get_events = sdl3_get_events,
 		set_cursor_visible = sdl3_set_cursor_visible,
 		set_system_cursor = sdl3_set_system_cursor,
@@ -165,6 +166,13 @@ sdl3_get_events :: proc() -> []core.Event {
 sdl3_get_framebuffer_size :: proc() -> (width: u32, height: u32) {
 	w, h: i32
 	SDL.GetWindowSizeInPixels(sdl3_window, &w, &h)
+	return u32(w), u32(h)
+}
+
+@(private = "file")
+sdl3_get_window_size :: proc() -> (width: u32, height: u32) {
+	w, h: i32
+	SDL.GetWindowSize(sdl3_window, &w, &h)
 	return u32(w), u32(h)
 }
 

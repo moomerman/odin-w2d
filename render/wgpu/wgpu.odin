@@ -456,7 +456,10 @@ renderer_on_device_ready :: proc() {
 @(private = "file")
 renderer_update_projection :: proc() {
 	r := &renderer
-	projection := linalg.matrix_ortho3d_f32(0, f32(r.width), f32(r.height), 0, -1, 1)
+	// Use logical (window) size for projection so coordinates match mouse input
+	// and stay DPI-independent. The surface/framebuffer uses physical pixels.
+	lw, lh := r.window.get_window_size()
+	projection := linalg.matrix_ortho3d_f32(0, f32(lw), f32(lh), 0, -1, 1)
 	// Write to slot 0 and reset the slot counter. Called at init and on resize.
 	wgpu.QueueWriteBuffer(r.queue, r.projection_buffer, 0, &projection, size_of(projection))
 	r.projection_offset = 0

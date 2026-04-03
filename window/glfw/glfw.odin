@@ -53,6 +53,7 @@ backend :: proc() -> core.Window_Backend {
 		poll_events = glfw_poll_events,
 		get_surface = glfw_get_surface,
 		get_framebuffer_size = glfw_get_framebuffer_size,
+		get_window_size = glfw_get_window_size,
 		get_events = glfw_get_events,
 		set_cursor_visible = glfw_set_cursor_visible,
 		set_system_cursor = glfw_set_system_cursor,
@@ -132,6 +133,12 @@ glfw_get_surface :: proc(instance: rawptr) -> rawptr {
 @(private = "file")
 glfw_get_framebuffer_size :: proc() -> (width: u32, height: u32) {
 	iw, ih := glfw.GetFramebufferSize(glfw_window)
+	return u32(iw), u32(ih)
+}
+
+@(private = "file")
+glfw_get_window_size :: proc() -> (width: u32, height: u32) {
+	iw, ih := glfw.GetWindowSize(glfw_window)
 	return u32(iw), u32(ih)
 }
 

@@ -28,6 +28,10 @@ Window_Backend :: struct {
 	// Get the framebuffer size in physical pixels.
 	get_framebuffer_size: proc() -> (width: u32, height: u32),
 
+	// Get the window size in logical pixels (points). On high-DPI displays
+	// this differs from the framebuffer size by the scale factor.
+	get_window_size:      proc() -> (width: u32, height: u32),
+
 	// Return buffered input events since the last call, then clear the buffer.
 	get_events:           proc() -> []Event,
 

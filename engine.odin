@@ -96,9 +96,10 @@ get_time :: proc() -> f64 {
 	return ctx.elapsed_time
 }
 
-// Get the current screen size (drawable area) in pixels.
+// Get the current screen size in logical pixels (points).
+// On high-DPI displays this is the window size, not the physical framebuffer size.
 get_screen_size :: proc() -> (int, int) {
-	w, h := ctx.window.get_framebuffer_size()
+	w, h := ctx.window.get_window_size()
 	return int(w), int(h)
 }
 

@@ -61,6 +61,7 @@ backend :: proc() -> core.Window_Backend {
 		poll_events = native_poll_events,
 		get_surface = native_get_surface,
 		get_framebuffer_size = native_get_framebuffer_size,
+		get_window_size = native_get_window_size,
 		get_events = native_get_events,
 		set_cursor_visible = native_set_cursor_visible,
 		set_system_cursor = native_set_system_cursor,
@@ -311,6 +312,11 @@ native_get_framebuffer_size :: proc() -> (width: u32, height: u32) {
 	bounds := view->bounds()
 	scale := f64(window->backingScaleFactor())
 	return u32(f64(bounds.size.width) * scale), u32(f64(bounds.size.height) * scale)
+}
+
+@(private = "file")
+native_get_window_size :: proc() -> (width: u32, height: u32) {
+	return u32(screen_width), u32(screen_height)
 }
 
 @(private = "file")

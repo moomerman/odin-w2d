@@ -22,6 +22,7 @@ backend :: proc() -> core.Window_Backend {
 		poll_events = js_poll_events,
 		get_surface = js_get_surface,
 		get_framebuffer_size = js_get_framebuffer_size,
+		get_window_size = js_get_window_size,
 		get_events = js_get_events,
 		set_cursor_visible = js_set_cursor_visible,
 		set_system_cursor = js_set_system_cursor,
@@ -83,6 +84,12 @@ js_get_framebuffer_size :: proc() -> (width, height: u32) {
 	rect := js.get_bounding_client_rect("body")
 	dpi := js.device_pixel_ratio()
 	return u32(f64(rect.width) * dpi), u32(f64(rect.height) * dpi)
+}
+
+@(private = "file")
+js_get_window_size :: proc() -> (width, height: u32) {
+	rect := js.get_bounding_client_rect("body")
+	return u32(rect.width), u32(rect.height)
 }
 
 @(private = "file")
