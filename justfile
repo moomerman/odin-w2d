@@ -30,7 +30,7 @@ check-example:
     odin check examples/{{example}} {{vet_flags}} -vet-packages:main,game
 
 check:
-    odin check . -no-entry-point {{vet_flags}} -vet-packages:engine,core,backend,renderer_wgpu,window_darwin,window_sdl3,window_glfw,window_js,audio_miniaudio,audio_webaudio
+    odin check . -no-entry-point {{vet_flags}} -vet-packages:engine,core,backend,renderer_wgpu,window_darwin,window_sdl3,window_js,audio_miniaudio,audio_webaudio
 
 check-tools:
     odin check tools/build_web {{vet_flags}} -vet-packages:build_web

@@ -1,5 +1,5 @@
 #+build !js
-// Desktop platform — uses SDL3 for windowing and wgpu for rendering.
+// Desktop platform — blocking event loop for native windowing backends.
 
 package engine
 

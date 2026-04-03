@@ -38,7 +38,7 @@ when "off" == #config(TIME_TRACKER, "on") {
 
 	// Common usage:
 	//
-	//      import "spacelib:core/time_tracker"
+	//      import "tools/time_tracker"
 	//      main :: proc () {
 	//          time_tracker.init(skip_ms=500) // optional, if not called, skip_ms will be effectively 0
 	//          defer {
