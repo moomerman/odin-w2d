@@ -89,6 +89,140 @@ draw_texture_rect :: proc(tex: Texture, src: Rect, dst: Rect, tint: Color = WHIT
 	ctx.renderer.push_quad(dst, uv, tex.handle, tint)
 }
 
+// Draw a rectangle with a custom origin and rotation.
+// The origin is relative to the rectangle's top-left corner. For example,
+// {r.w/2, r.h/2} rotates around the center.
+// Rotation is in radians.
+draw_rect_ex :: proc(r: Rect, origin: Vec2, rotation: f32, color: Color) {
+	white := ctx.renderer.get_white_texture()
+	uv := [4][2]f32{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
+
+	// Corners relative to the origin point.
+	corners := [4]Vec2 {
+		{-origin.x, -origin.y},
+		{r.w - origin.x, -origin.y},
+		{r.w - origin.x, r.h - origin.y},
+		{-origin.x, r.h - origin.y},
+	}
+
+	// Rotate each corner and translate to the rect position + origin.
+	center := Vec2{r.x + origin.x, r.y + origin.y}
+	positions: [4]Vec2
+	for i in 0 ..< 4 {
+		positions[i] = rotate_vec2(corners[i], rotation) + center
+	}
+
+	ctx.renderer.push_quad_ex(positions, uv, white, color)
+}
+
+// Draw a texture from `src` into `dst`, rotated around `origin` by `rotation` radians.
+// The origin is relative to the destination rectangle's top-left corner.
+draw_texture_ex :: proc(
+	tex: Texture,
+	src: Rect,
+	dst: Rect,
+	origin: Vec2,
+	rotation: f32,
+	tint: Color = WHITE,
+) {
+	tw := f32(tex.width)
+	th := f32(tex.height)
+	u0 := src.x / tw
+	v0 := src.y / th
+	u1 := (src.x + src.w) / tw
+	v1 := (src.y + src.h) / th
+	uv := [4][2]f32{{u0, v0}, {u1, v0}, {u1, v1}, {u0, v1}}
+
+	corners := [4]Vec2 {
+		{-origin.x, -origin.y},
+		{dst.w - origin.x, -origin.y},
+		{dst.w - origin.x, dst.h - origin.y},
+		{-origin.x, dst.h - origin.y},
+	}
+
+	center := Vec2{dst.x + origin.x, dst.y + origin.y}
+	positions: [4]Vec2
+	for i in 0 ..< 4 {
+		positions[i] = rotate_vec2(corners[i], rotation) + center
+	}
+
+	ctx.renderer.push_quad_ex(positions, uv, tex.handle, tint)
+}
+
+// Draw a filled circle.
+draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments: int = 16) {
+	white := ctx.renderer.get_white_texture()
+	uv := [4][2]f32{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
+	step := math.TAU / f32(segments)
+
+	for i in 0 ..< segments {
+		a0 := step * f32(i)
+		a1 := step * f32(i + 1)
+
+		p1 := Vec2{center.x + math.cos(a0) * radius, center.y + math.sin(a0) * radius}
+		p2 := Vec2{center.x + math.cos(a1) * radius, center.y + math.sin(a1) * radius}
+
+		// Degenerate quad: 4th vertex = 3rd to form a single triangle.
+		ctx.renderer.push_quad_ex({center, p1, p2, p2}, uv, white, color)
+	}
+}
+
+// Draw the outline of a circle.
+draw_circle_outline :: proc(
+	center: Vec2,
+	radius: f32,
+	thickness: f32,
+	color: Color,
+	segments: int = 16,
+) {
+	white := ctx.renderer.get_white_texture()
+	uv := [4][2]f32{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
+	step := math.TAU / f32(segments)
+	inner := radius - thickness * 0.5
+	outer := radius + thickness * 0.5
+
+	for i in 0 ..< segments {
+		a0 := step * f32(i)
+		a1 := step * f32(i + 1)
+		c0 := math.cos(a0)
+		s0 := math.sin(a0)
+		c1 := math.cos(a1)
+		s1 := math.sin(a1)
+
+		ctx.renderer.push_quad_ex(
+			{
+				{center.x + c0 * outer, center.y + s0 * outer},
+				{center.x + c1 * outer, center.y + s1 * outer},
+				{center.x + c1 * inner, center.y + s1 * inner},
+				{center.x + c0 * inner, center.y + s0 * inner},
+			},
+			uv,
+			white,
+			color,
+		)
+	}
+}
+
+// Draw a filled triangle.
+draw_triangle :: proc(vertices: [3]Vec2, color: Color) {
+	white := ctx.renderer.get_white_texture()
+	uv := [4][2]f32{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
+	// Degenerate quad: 4th vertex = 3rd to form a single triangle.
+	ctx.renderer.push_quad_ex(
+		{vertices[0], vertices[1], vertices[2], vertices[2]},
+		uv,
+		white,
+		color,
+	)
+}
+
+@(private = "file")
+rotate_vec2 :: proc(v: Vec2, angle: f32) -> Vec2 {
+	c := math.cos(angle)
+	s := math.sin(angle)
+	return {v.x * c - v.y * s, v.x * s + v.y * c}
+}
+
 // Load a texture from a byte slice. Supports two modes:
 //
 // 1. Encoded image (PNG, BMP, TGA) — pass the file bytes, dimensions are read from the header:

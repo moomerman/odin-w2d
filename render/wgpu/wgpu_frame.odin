@@ -2,6 +2,7 @@ package renderer_wgpu
 
 import hm "core:container/handle_map"
 import "core:fmt"
+import "core:math/linalg"
 import "vendor:wgpu"
 
 import core "../../core"
@@ -139,6 +140,78 @@ renderer_flush :: proc() {
 		r.batch.buffer_offset = 0
 	}
 	r.batch.vertex_count = 0
+}
+
+// Switch the render target mid-frame.
+// Pass a texture handle to draw into a render texture, or nil to draw to the screen.
+// clear_color clears the target when set; nil preserves existing contents.
+@(private = "package")
+renderer_set_render_target :: proc(
+	target: Maybe(core.Texture_Handle),
+	clear_color: Maybe(core.Color),
+) {
+	r := &renderer
+	if !r.frame.active {
+		return
+	}
+
+	// Flush any pending geometry and end the current render pass.
+	renderer_flush()
+	wgpu.RenderPassEncoderEnd(r.frame.pass)
+	wgpu.RenderPassEncoderRelease(r.frame.pass)
+	r.batch.texture_view = nil
+	r.batch.bind_group = nil
+
+	// Determine the target view and dimensions.
+	target_view: wgpu.TextureView
+	target_w, target_h: u32
+
+	if handle, ok := target.?; ok {
+		entry := &r.textures[handle]
+		target_view = entry.view
+		target_w = u32(entry.width)
+		target_h = u32(entry.height)
+	} else {
+		target_view = r.frame.view
+		target_w, target_h = r.window.get_window_size()
+	}
+
+	// Choose load op: Clear if a clear color was given, Load to preserve contents.
+	load_op: wgpu.LoadOp
+	clear_value: wgpu.Color
+	if cc, has_clear := clear_color.?; has_clear {
+		load_op = .Clear
+		cf := color_to_f64(cc)
+		clear_value = {cf[0], cf[1], cf[2], cf[3]}
+	} else {
+		load_op = .Load
+	}
+
+	// Begin a new render pass on the target.
+	r.frame.pass = wgpu.CommandEncoderBeginRenderPass(
+		r.frame.encoder,
+		&{
+			colorAttachmentCount = 1,
+			colorAttachments = &wgpu.RenderPassColorAttachment {
+				view = target_view,
+				loadOp = load_op,
+				storeOp = .Store,
+				depthSlice = wgpu.DEPTH_SLICE_UNDEFINED,
+				clearValue = clear_value,
+			},
+		},
+	)
+
+	// Update projection to match the target dimensions.
+	projection := linalg.matrix_ortho3d_f32(0, f32(target_w), f32(target_h), 0, -1, 1)
+	assert(
+		r.projection_slot < MAX_PROJECTION_SLOTS,
+		"Too many render target switches in one frame",
+	)
+	offset := u64(r.projection_slot) * PROJECTION_SLOT_STRIDE
+	wgpu.QueueWriteBuffer(r.queue, r.projection_buffer, offset, &projection, size_of(projection))
+	r.projection_offset = offset
+	r.projection_slot += 1
 }
 
 // End the current frame: flush, end render pass, submit, present.

@@ -14,6 +14,12 @@ Shader :: struct {
 	handle: Shader_Handle,
 }
 
+// Render_Texture is a texture that can be used as a render target.
+// Draw into it with set_render_target, then use .texture with draw_texture.
+Render_Texture :: struct {
+	texture: Texture,
+}
+
 // Render_Backend abstracts over different rendering implementations.
 // Currently the only backend is wgpu (render/wgpu package).
 Render_Backend :: struct {
@@ -89,6 +95,14 @@ Render_Backend :: struct {
 
 	// Destroy a custom shader and free its GPU resources.
 	destroy_shader:           proc(handle: Shader_Handle),
+
+	// Create a render texture that can be drawn into as a render target.
+	create_render_texture:    proc(width, height: int) -> Texture_Handle,
+
+	// Set the render target. Pass a texture handle to draw into a render
+	// texture, or nil to draw to the screen. clear_color, when set, clears
+	// the target; when nil the existing contents are preserved.
+	set_render_target:        proc(target: Maybe(Texture_Handle), clear_color: Maybe(Color)),
 
 	// Return the underlying GPU device handle as a raw pointer.
 	// For the wgpu backend this is a wgpu.Device.

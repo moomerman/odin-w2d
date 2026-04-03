@@ -88,6 +88,39 @@ renderer_create_texture_empty :: proc(width, height: int) -> core.Texture_Handle
 	return handle
 }
 
+// Create a render texture — a texture that can also be used as a render target.
+@(private = "package")
+renderer_create_render_texture :: proc(width, height: int) -> core.Texture_Handle {
+	r := &renderer
+
+	tex := wgpu.DeviceCreateTexture(
+		r.device,
+		&{
+			usage = {.TextureBinding, .CopyDst, .RenderAttachment},
+			dimension = ._2D,
+			size = {u32(width), u32(height), 1},
+			format = .BGRA8Unorm,
+			mipLevelCount = 1,
+			sampleCount = 1,
+		},
+	)
+
+	tex_view := wgpu.TextureCreateView(tex, nil)
+
+	r.current_stats.textures_alive += 1
+	r.current_stats.texture_memory += width * height * 4
+
+	handle := alloc_handle()
+	r.textures[handle] = Texture_Entry {
+		handle = tex,
+		view   = tex_view,
+		width  = width,
+		height = height,
+	}
+
+	return handle
+}
+
 // Update a sub-region of an existing texture with new RGBA8 pixel data.
 @(private = "package")
 renderer_update_texture :: proc(

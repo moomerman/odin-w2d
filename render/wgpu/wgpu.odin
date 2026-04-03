@@ -239,6 +239,8 @@ backend :: proc() -> core.Render_Backend {
 		set_shader = renderer_set_shader,
 		reset_shader = renderer_reset_shader,
 		destroy_shader = renderer_destroy_shader,
+		create_render_texture = renderer_create_render_texture,
+		set_render_target = renderer_set_render_target,
 		get_gpu_device = renderer_get_gpu_device,
 		get_gpu_queue = renderer_get_gpu_queue,
 		get_surface_format = renderer_get_surface_format,

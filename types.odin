@@ -19,6 +19,7 @@ Color :: core.Color
 Camera :: core.Camera
 Texture :: core.Texture
 Shader :: core.Shader
+Render_Texture :: core.Render_Texture
 Stats :: core.Stats
 
 Audio_Source :: core.Audio_Source
