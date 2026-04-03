@@ -4,6 +4,56 @@ import "vendor:wgpu"
 
 import core "../../core"
 
+// Shared helper for all texture creation paths. Differs only by usage flags,
+// format, and whether initial pixel data is uploaded.
+@(private = "file")
+create_texture_internal :: proc(
+	data: Maybe([]u8),
+	width, height: int,
+	format: wgpu.TextureFormat,
+	usage: wgpu.TextureUsageFlags,
+) -> core.Texture_Handle {
+	r := &renderer
+
+	tex := wgpu.DeviceCreateTexture(
+		r.device,
+		&{
+			usage = usage,
+			dimension = ._2D,
+			size = {u32(width), u32(height), 1},
+			format = format,
+			mipLevelCount = 1,
+			sampleCount = 1,
+		},
+	)
+
+	tex_view := wgpu.TextureCreateView(tex, nil)
+
+	if pixels, ok := data.?; ok {
+		wgpu.QueueWriteTexture(
+			r.queue,
+			&{texture = tex},
+			raw_data(pixels),
+			uint(len(pixels)),
+			&{bytesPerRow = u32(width) * 4, rowsPerImage = u32(height)},
+			&{u32(width), u32(height), 1},
+		)
+	}
+
+	r.current_stats.textures_alive += 1
+	r.current_stats.texture_memory += width * height * 4
+
+	handle := alloc_handle()
+	r.textures[handle] = Texture_Entry {
+		handle = tex,
+		view   = tex_view,
+		width  = width,
+		height = height,
+	}
+
+	return handle
+}
+
 // Allocate a new texture handle.
 @(private = "file")
 alloc_handle :: proc() -> core.Texture_Handle {
@@ -15,110 +65,25 @@ alloc_handle :: proc() -> core.Texture_Handle {
 // Create a texture from raw RGBA pixel data.
 @(private = "package")
 renderer_create_texture :: proc(data: []u8, width, height: int) -> core.Texture_Handle {
-	r := &renderer
-
-	tex := wgpu.DeviceCreateTexture(
-		r.device,
-		&{
-			usage = {.TextureBinding, .CopyDst},
-			dimension = ._2D,
-			size = {u32(width), u32(height), 1},
-			format = .RGBA8Unorm,
-			mipLevelCount = 1,
-			sampleCount = 1,
-		},
-	)
-
-	tex_view := wgpu.TextureCreateView(tex, nil)
-
-	// Upload pixel data
-	wgpu.QueueWriteTexture(
-		r.queue,
-		&{texture = tex},
-		raw_data(data),
-		uint(len(data)),
-		&{bytesPerRow = u32(width) * 4, rowsPerImage = u32(height)},
-		&{u32(width), u32(height), 1},
-	)
-
-	r.current_stats.textures_alive += 1
-	r.current_stats.texture_memory += width * height * 4
-
-	handle := alloc_handle()
-	r.textures[handle] = Texture_Entry {
-		handle = tex,
-		view   = tex_view,
-		width  = width,
-		height = height,
-	}
-
-	return handle
+	return create_texture_internal(data, width, height, .RGBA8Unorm, {.TextureBinding, .CopyDst})
 }
 
 // Create an empty texture (no initial pixel data). Used for atlases filled on demand.
 @(private = "package")
 renderer_create_texture_empty :: proc(width, height: int) -> core.Texture_Handle {
-	r := &renderer
-
-	tex := wgpu.DeviceCreateTexture(
-		r.device,
-		&{
-			usage = {.TextureBinding, .CopyDst},
-			dimension = ._2D,
-			size = {u32(width), u32(height), 1},
-			format = .RGBA8Unorm,
-			mipLevelCount = 1,
-			sampleCount = 1,
-		},
-	)
-
-	tex_view := wgpu.TextureCreateView(tex, nil)
-
-	r.current_stats.textures_alive += 1
-	r.current_stats.texture_memory += width * height * 4
-
-	handle := alloc_handle()
-	r.textures[handle] = Texture_Entry {
-		handle = tex,
-		view   = tex_view,
-		width  = width,
-		height = height,
-	}
-
-	return handle
+	return create_texture_internal(nil, width, height, .RGBA8Unorm, {.TextureBinding, .CopyDst})
 }
 
 // Create a render texture — a texture that can also be used as a render target.
 @(private = "package")
 renderer_create_render_texture :: proc(width, height: int) -> core.Texture_Handle {
-	r := &renderer
-
-	tex := wgpu.DeviceCreateTexture(
-		r.device,
-		&{
-			usage = {.TextureBinding, .CopyDst, .RenderAttachment},
-			dimension = ._2D,
-			size = {u32(width), u32(height), 1},
-			format = .BGRA8Unorm,
-			mipLevelCount = 1,
-			sampleCount = 1,
-		},
+	return create_texture_internal(
+		nil,
+		width,
+		height,
+		.BGRA8Unorm,
+		{.TextureBinding, .CopyDst, .RenderAttachment},
 	)
-
-	tex_view := wgpu.TextureCreateView(tex, nil)
-
-	r.current_stats.textures_alive += 1
-	r.current_stats.texture_memory += width * height * 4
-
-	handle := alloc_handle()
-	r.textures[handle] = Texture_Entry {
-		handle = tex,
-		view   = tex_view,
-		width  = width,
-		height = height,
-	}
-
-	return handle
 }
 
 // Update a sub-region of an existing texture with new RGBA8 pixel data.

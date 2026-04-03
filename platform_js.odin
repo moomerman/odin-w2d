@@ -25,11 +25,19 @@ step :: proc(dt: f32) -> bool {
 		return true
 	}
 
-	if ctx.init_called && ctx.frame_proc != nil {
-		process_input()
-		calculate_frame_time()
-		ctx.audio.update()
-		ctx.frame_proc(ctx.frame_time)
+	if ctx.renderer.is_initialized() {
+		if !ctx.init_called {
+			if ctx.init_proc != nil {
+				ctx.init_proc()
+			}
+			ctx.init_called = true
+		}
+		if ctx.frame_proc != nil {
+			process_input()
+			calculate_frame_time()
+			ctx.audio.update()
+			ctx.frame_proc(ctx.frame_time)
+		}
 	}
 
 	return true

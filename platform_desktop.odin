@@ -16,11 +16,19 @@ platform_run :: proc() {
 		if !ctx.window.poll_events() {
 			break
 		}
-		if ctx.renderer.is_initialized() && ctx.frame_proc != nil {
-			process_input()
-			calculate_frame_time()
-			ctx.audio.update()
-			ctx.frame_proc(ctx.frame_time)
+		if ctx.renderer.is_initialized() {
+			if !ctx.init_called {
+				if ctx.init_proc != nil {
+					ctx.init_proc()
+				}
+				ctx.init_called = true
+			}
+			if ctx.frame_proc != nil {
+				process_input()
+				calculate_frame_time()
+				ctx.audio.update()
+				ctx.frame_proc(ctx.frame_time)
+			}
 		}
 	}
 

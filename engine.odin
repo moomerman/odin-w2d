@@ -56,9 +56,8 @@ init :: proc(width: int, height: int, title: string) {
 // Run the game loop.
 //
 // `init_proc` is called once when the GPU device is fully initialized — use it
-// for loading textures and other GPU resources. On desktop this fires
-// synchronously before the first frame. On web it fires asynchronously once the
-// adapter/device callbacks complete.
+// for loading textures and other GPU resources. On desktop this fires before
+// the first frame. On web it fires once the adapter/device callbacks complete.
 //
 // `frame` is called every frame after `init_proc` has run. It receives the delta
 // time (seconds since the previous frame) as its argument.
@@ -74,14 +73,6 @@ run :: proc(init_proc: proc(), frame_proc: proc(dt: f32), shutdown_proc: proc())
 	ctx.init_proc = init_proc
 	ctx.frame_proc = frame_proc
 	ctx.shutdown_proc = shutdown_proc
-	ctx.init_called = false
-
-	// On desktop the renderer is already initialized (callbacks fire synchronously
-	// during init), so call the init proc immediately before entering the loop.
-	if ctx.renderer.is_initialized() && !ctx.init_called {
-		init_proc()
-		ctx.init_called = true
-	}
 
 	platform_run()
 }
@@ -135,16 +126,11 @@ set_pre_present_callback :: proc(callback: proc(pass: rawptr, width, height: u32
 }
 
 // Called by the render backend once the GPU device is ready.
-// On desktop this fires synchronously during init(); on web it fires
-// asynchronously once the adapter/device callbacks complete.
+// Initializes engine subsystems that need the GPU (text rendering).
+// The user's init_proc is called from the frame loop once the renderer is ready.
 @(private = "package")
 on_renderer_initialized :: proc() {
 	text_init()
-
-	if ctx.init_proc != nil {
-		ctx.init_proc()
-	}
-	ctx.init_called = true
 }
 
 // Called by window backends when the framebuffer is resized.

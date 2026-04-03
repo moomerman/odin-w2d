@@ -7,6 +7,10 @@ import _ "core:image/png"
 import _ "core:image/tga"
 import "core:math"
 
+// Full UV rect for the 1x1 white texture — used by all solid-color primitives.
+@(private = "file")
+WHITE_UV :: [4][2]f32{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
+
 // Clear the screen with a solid color. Call once at the start of each frame's drawing.
 clear :: proc(color: Color) {
 	ctx.renderer.begin_frame(color)
@@ -25,9 +29,7 @@ present :: proc() {
 // Draw a solid-colored rectangle.
 draw_rect :: proc(r: Rect, color: Color) {
 	white := ctx.renderer.get_white_texture()
-	// Full UV rect for the 1x1 white texture
-	uv := [4][2]f32{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
-	ctx.renderer.push_quad(r, uv, white, color)
+	ctx.renderer.push_quad(r, WHITE_UV, white, color)
 }
 
 // Draw the outline of a rectangle with a given thickness.
@@ -65,15 +67,13 @@ draw_line :: proc(from: Vec2, to: Vec2, thickness: f32, color: Color) {
 	p3 := Vec2{from.x - nx, from.y - ny}
 
 	white := ctx.renderer.get_white_texture()
-	uv := [4][2]f32{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
-	ctx.renderer.push_quad_ex({p0, p1, p2, p3}, uv, white, color)
+	ctx.renderer.push_quad_ex({p0, p1, p2, p3}, WHITE_UV, white, color)
 }
 
 // Draw a texture at the given position with an optional tint.
 draw_texture :: proc(tex: Texture, pos: Vec2, tint: Color = WHITE) {
 	dst := Rect{pos.x, pos.y, f32(tex.width), f32(tex.height)}
-	uv := [4][2]f32{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
-	ctx.renderer.push_quad(dst, uv, tex.handle, tint)
+	ctx.renderer.push_quad(dst, WHITE_UV, tex.handle, tint)
 }
 
 // Draw a sub-region of a texture into a destination rectangle with an optional tint.
@@ -95,7 +95,6 @@ draw_texture_rect :: proc(tex: Texture, src: Rect, dst: Rect, tint: Color = WHIT
 // Rotation is in radians.
 draw_rect_ex :: proc(r: Rect, origin: Vec2, rotation: f32, color: Color) {
 	white := ctx.renderer.get_white_texture()
-	uv := [4][2]f32{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
 
 	// Corners relative to the origin point.
 	corners := [4]Vec2 {
@@ -112,7 +111,7 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rotation: f32, color: Color) {
 		positions[i] = rotate_vec2(corners[i], rotation) + center
 	}
 
-	ctx.renderer.push_quad_ex(positions, uv, white, color)
+	ctx.renderer.push_quad_ex(positions, WHITE_UV, white, color)
 }
 
 // Draw a texture from `src` into `dst`, rotated around `origin` by `rotation` radians.
@@ -152,7 +151,6 @@ draw_texture_ex :: proc(
 // Draw a filled circle.
 draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments: int = 16) {
 	white := ctx.renderer.get_white_texture()
-	uv := [4][2]f32{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
 	step := math.TAU / f32(segments)
 
 	for i in 0 ..< segments {
@@ -163,7 +161,7 @@ draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments: int = 16)
 		p2 := Vec2{center.x + math.cos(a1) * radius, center.y + math.sin(a1) * radius}
 
 		// Degenerate quad: 4th vertex = 3rd to form a single triangle.
-		ctx.renderer.push_quad_ex({center, p1, p2, p2}, uv, white, color)
+		ctx.renderer.push_quad_ex({center, p1, p2, p2}, WHITE_UV, white, color)
 	}
 }
 
@@ -176,7 +174,6 @@ draw_circle_outline :: proc(
 	segments: int = 16,
 ) {
 	white := ctx.renderer.get_white_texture()
-	uv := [4][2]f32{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
 	step := math.TAU / f32(segments)
 	inner := radius - thickness * 0.5
 	outer := radius + thickness * 0.5
@@ -196,7 +193,7 @@ draw_circle_outline :: proc(
 				{center.x + c1 * inner, center.y + s1 * inner},
 				{center.x + c0 * inner, center.y + s0 * inner},
 			},
-			uv,
+			WHITE_UV,
 			white,
 			color,
 		)
@@ -206,11 +203,10 @@ draw_circle_outline :: proc(
 // Draw a filled triangle.
 draw_triangle :: proc(vertices: [3]Vec2, color: Color) {
 	white := ctx.renderer.get_white_texture()
-	uv := [4][2]f32{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
 	// Degenerate quad: 4th vertex = 3rd to form a single triangle.
 	ctx.renderer.push_quad_ex(
 		{vertices[0], vertices[1], vertices[2], vertices[2]},
-		uv,
+		WHITE_UV,
 		white,
 		color,
 	)
