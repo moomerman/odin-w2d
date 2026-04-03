@@ -151,6 +151,12 @@ native_init :: proc(width, height: int, title: string, resize_cb: proc()) {
 					}
 				}
 			},
+			windowDidChangeBackingProperties = proc(_: ^NS.Notification) {
+				context = odin_ctx
+				if on_resize != nil {
+					on_resize()
+				}
+			},
 		}, "NativeDarwinWindowDelegate", odin_ctx)
 	window->setDelegate(win_delegate)
 
