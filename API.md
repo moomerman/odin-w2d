@@ -204,6 +204,13 @@ camera_view_matrix :: proc(c: Camera) -> matrix[4, 4]f32
 camera_world_matrix :: proc(c: Camera) -> matrix[4, 4]f32
 ```
 
+## Scissor
+
+```odin
+set_scissor_rect :: proc(rect: Rect)
+reset_scissor_rect :: proc()
+```
+
 ## Input - Mouse
 
 ```odin

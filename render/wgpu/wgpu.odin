@@ -205,6 +205,9 @@ Renderer :: struct {
 	frame:                Frame_State,
 	batch:                Batch_State,
 
+	// Active scissor rect in logical pixels, or nil for full viewport.
+	scissor_rect:         Maybe(core.Rect),
+
 	// Optional callback invoked after engine flush, before render pass ends.
 	pre_present_callback: proc(pass: rawptr, width, height: u32),
 }
@@ -245,6 +248,7 @@ backend :: proc() -> core.Render_Backend {
 		get_gpu_queue = renderer_get_gpu_queue,
 		get_surface_format = renderer_get_surface_format,
 		set_view_projection = renderer_set_view_projection,
+		set_scissor_rect = renderer_set_scissor_rect,
 		set_pre_present_callback = renderer_set_pre_present_callback,
 	}
 }
@@ -595,6 +599,51 @@ renderer_set_view_projection :: proc(m: matrix[4, 4]f32) {
 	// Invalidate the current bind group so the next draw call creates a new one
 	// referencing the updated projection offset.
 	r.batch.texture_view = nil
+}
+
+@(private = "file")
+renderer_set_scissor_rect :: proc(rect: Maybe(core.Rect)) {
+	r := &renderer
+	if !r.frame.active {
+		return
+	}
+
+	if r.scissor_rect == rect {
+		return
+	}
+
+	renderer_flush()
+	r.scissor_rect = rect
+	apply_scissor_rect()
+}
+
+// Apply the current scissor state to the render pass.
+// Converts logical pixels to physical pixels and clamps to framebuffer bounds.
+@(private = "package")
+apply_scissor_rect :: proc() {
+	r := &renderer
+	if !r.frame.active {
+		return
+	}
+
+	if sr, ok := r.scissor_rect.?; ok {
+		lw, lh := r.window.get_window_size()
+		scale_x := f32(r.width) / f32(lw)
+		scale_y := f32(r.height) / f32(lh)
+
+		px := u32(sr.x * scale_x)
+		py := u32(sr.y * scale_y)
+		pw := u32(sr.w * scale_x)
+		ph := u32(sr.h * scale_y)
+
+		// Clamp to framebuffer bounds to avoid wgpu validation errors.
+		if px + pw > r.width {pw = r.width - px}
+		if py + ph > r.height {ph = r.height - py}
+
+		wgpu.RenderPassEncoderSetScissorRect(r.frame.pass, px, py, pw, ph)
+	} else {
+		wgpu.RenderPassEncoderSetScissorRect(r.frame.pass, 0, 0, r.width, r.height)
+	}
 }
 
 @(private = "file")

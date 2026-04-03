@@ -120,6 +120,11 @@ Render_Backend :: struct {
 	// Used by the camera system to apply camera transforms.
 	set_view_projection:      proc(m: matrix[4, 4]f32),
 
+	// Set or clear the scissor rectangle for subsequent draw calls.
+	// Coordinates are in logical pixels; the backend handles DPI scaling.
+	// Pass nil to reset to the full viewport.
+	set_scissor_rect:         proc(rect: Maybe(Rect)),
+
 	// Set a callback invoked after the final engine flush but before the render
 	// pass ends. Custom renderers (e.g. slug text) use this to draw into the
 	// same render pass. The callback receives the render pass handle and

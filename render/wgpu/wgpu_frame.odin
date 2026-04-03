@@ -64,6 +64,7 @@ renderer_begin_frame :: proc(color: core.Color) -> bool {
 	)
 
 	r.frame.active = true
+	r.scissor_rect = nil
 	return true
 }
 
@@ -212,6 +213,9 @@ renderer_set_render_target :: proc(
 	wgpu.QueueWriteBuffer(r.queue, r.projection_buffer, offset, &projection, size_of(projection))
 	r.projection_offset = offset
 	r.projection_slot += 1
+
+	// Reset scissor — the new pass defaults to full viewport.
+	r.scissor_rect = nil
 }
 
 // End the current frame: flush, end render pass, submit, present.
@@ -225,6 +229,10 @@ renderer_present :: proc() {
 	renderer_flush()
 
 	if r.pre_present_callback != nil {
+		// Reset scissor so custom renderers draw to the full viewport.
+		if r.scissor_rect != nil {
+			wgpu.RenderPassEncoderSetScissorRect(r.frame.pass, 0, 0, r.width, r.height)
+		}
 		lw, lh := r.window.get_window_size()
 		r.pre_present_callback(r.frame.pass, lw, lh)
 	}
