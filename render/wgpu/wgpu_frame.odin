@@ -40,7 +40,13 @@ renderer_begin_frame :: proc(color: core.Color) -> bool {
 		}
 		renderer_resize()
 		return false
-	case .OutOfMemory, .DeviceLost, .Error:
+	case .Occluded:
+		// Window is occluded/hidden — skip this frame without resizing.
+		if r.frame.surface_tex.texture != nil {
+			wgpu.TextureRelease(r.frame.surface_tex.texture)
+		}
+		return false
+	case .Error:
 		fmt.panicf("[renderer/wgpu] get_current_texture status=%v", r.frame.surface_tex.status)
 	}
 
