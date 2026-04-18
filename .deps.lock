@@ -1,14 +1,14 @@
 {
   "dependencies": {
-    "github.com/moomerman/odin-slug": {
-      "ref": "wgpu-backend",
-      "sha": "db8db6977fdc56f9642b0ffd24eb6825247196bd",
-      "hash": "838289272f1533b9385fdbadc01c39fb470b901ffffe34588feb2d8946160435"
-    },
     "github.com/moomerman/odin-navmesh": {
       "ref": "main",
       "sha": "3aa92199454b87a660ad0b72fe85be99314877b2",
       "hash": "eb04341b39405f1872074f39461a040bb49ea727a638a94ce9fabca1f74fe3cd"
+    },
+    "github.com/moomerman/odin-slug": {
+      "ref": "wgpu-backend",
+      "sha": "02cdbc9b2f5c9a1c1db95ceade01660ce3e5f328",
+      "hash": "ac9852d54a6b106c267569f1b1847fbfbc100692f983eda3d63e61981f2941cd"
     }
   }
 }
