@@ -1,3 +1,55 @@
+w2d note: size queries from canvas instead of `body`
+
+**Fix in `window/js/js.odin`**
+
+`js_get_framebuffer_size` and `js_get_window_size` previously read from `id="body"`. Changed both to `id="wgpu-canvas"`.
+
+**Why it matters**
+
+The current behaviour assumes the canvas fills the body (which is what the bundled `index_template.html` sets up). When the library is embedded in a host page where the canvas is one element among many, `body`'s rect is the document's box, not the canvas's — so the wgpu surface gets configured to the wrong size (or 0×0 when the host doesn't give body an `id`). Reading from the canvas itself makes the library agnostic to the surrounding page structure.
+
+The other codepaths in the same file (cursor visibility, mouse / wheel listeners) already address `#wgpu-canvas`, so this just brings the size queries into line with them.
+
+**Caveat for embedders**
+
+When the canvas is sized purely via its `width`/`height` attributes (no CSS), `wgpuSurfaceConfigure` writes back `canvas.width = framebufferW; canvas.height = framebufferH`, which also grows the displayed CSS size — a feedback loop where each frame configures the surface bigger than the last. Embedders should pin the canvas's display size with CSS (e.g. `style="width: 640px; height: 400px"`); the bundled template already does this implicitly via `width: 100%; height: 100%` against a fixed-size body. Worth documenting in the README.
+
+**Suggested follow-up: `ResizeObserver` instead of window resize**
+
+`js_size_callback` is wired to `window.resize`, which fires only on viewport resizes. With the size now sourced from the canvas, anything that resizes the canvas without resizing the window (parent layout change, sidebar toggle, fullscreen on a sibling, devtools docking) is missed. A `ResizeObserver` on `#wgpu-canvas` is the more correct trigger and would be a small change in the JS shim plus a new entry point in `js.odin`. Window resize can stay as a fallback or be removed.
+
+**Optional: configurable selector**
+
+Hardcoding `#wgpu-canvas` is fine for a single-canvas world, but a host that wants two w2d instances on one page (or just a different id) currently can't. A small future improvement would be passing the selector through `core.Window_Backend.init` and storing it in module state; not needed for our use case yet.
+
+w2d note: clean shutdown for embedded use
+
+**Context**
+
+When w2d is embedded in a host page (rather than running in the bundled fullscreen template), the host may swap or unmount the canvas mid-session — e.g. on a hot rebuild that replaces the wasm module with a fresh instance. Right now there's no way to stop the previous instance: `odin.js` only cancels the rAF loop when `exports.step()` returns `false`, and w2d's `step` always returns `true`.
+
+The result is an accumulating leak: each rebuild leaves the previous wasm instance running a `requestAnimationFrame` callback that draws into a now-detached canvas, forever. Not user-visible in normal use, but real, and it makes long editor sessions progressively heavier.
+
+**What's needed**
+
+A way for the host (JS or another wasm export) to ask the engine to stop. Sketch:
+
+- Add module-level `quit_requested: bool` to `engine` state.
+- Public `quit :: proc()` that sets the flag (and calls `shutdown_proc` cleanly, then `engine_shutdown`, then unsets `initialized`).
+- In `platform_js.odin`'s `step`: if `ctx.quit_requested`, run shutdown once and return `false` so `odin.js` cancels the rAF.
+- Export a `@(export) request_quit :: proc "c" ()` that JS can call from a hook's `destroyed()`.
+
+**Why exporting it matters**
+
+The `@(fini)` `js_fini` hook only fires when the wasm module itself is torn down — for embedders that just unmount the canvas without unloading the wasm, that never runs. An explicit JS-callable export gives the host control independent of the module lifecycle.
+
+**Bonus while in there**
+
+Currently `js_init` unconditionally calls `js.add_window_event_listener(.Resize, ...)` etc. without storing the listeners' identities, and `js_shutdown` removes them by reference to the procs. That's fine, but worth verifying it actually unhooks cleanly across multiple init/shutdown cycles in the same page — embedders that mount/unmount/re-mount should not accumulate event listeners.
+
+
+w2d todo: "use offset coords for embedded canvases — viewport coords break hit-testing when the canvas isn't at viewport origin."
+
 ## Feature Plans
 
 ### 1. Camera System
