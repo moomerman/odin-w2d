@@ -87,6 +87,9 @@ Render_Backend :: struct {
 	// Set a uniform value by name on a custom shader.
 	set_shader_uniform:       proc(handle: Shader_Handle, name: string, value: any),
 
+	// Bind a texture to a named group-1 texture binding on a custom shader.
+	set_shader_texture:       proc(handle: Shader_Handle, name: string, texture: Texture_Handle),
+
 	// Activate a custom shader for subsequent draw calls.
 	set_shader:               proc(handle: Shader_Handle),
 

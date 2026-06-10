@@ -30,12 +30,42 @@ renderer_load_shader :: proc(wgsl_source: string) -> core.Shader_Handle {
 		len(parse.fragment_entry) > 0 ? parse.fragment_entry : "fs_main",
 	)
 
-	// Find group 1 uniform binding and compute layout
+	// Collect all group 1 bindings: one optional uniform buffer plus any
+	// number of texture_2d bindings. Samplers are not supported yet —
+	// shaders wanting filtered sampling can reuse tex_sampler from group 0,
+	// and exact texel reads (e.g. LUTs) use textureLoad with no sampler.
 	uniform_struct_name: string
 	for &b in parse.bindings {
-		if b.group == 1 && b.type == "uniform" {
+		if b.group != 1 {continue}
+		switch b.type {
+		case "uniform":
+			if len(uniform_struct_name) > 0 {
+				fmt.eprintf(
+					"[shader] only one group-1 uniform buffer is supported, ignoring: %s\n",
+					b.name,
+				)
+				continue
+			}
 			uniform_struct_name = b.type_name
-			break
+			entry.uniform_binding = u32(b.binding)
+		case "texture_2d":
+			if entry.textures == nil {
+				entry.textures = make(map[string]Shader_Texture)
+			}
+			entry.textures[strings.clone(b.name)] = Shader_Texture {
+				binding = u32(b.binding),
+			}
+		case "sampler":
+			fmt.eprintf(
+				"[shader] group-1 samplers are not supported yet (binding %q) — reuse tex_sampler from group 0\n",
+				b.name,
+			)
+		case:
+			fmt.eprintf(
+				"[shader] unsupported group-1 binding type %q (binding %q)\n",
+				b.type,
+				b.name,
+			)
 		}
 	}
 
@@ -73,21 +103,8 @@ renderer_load_shader :: proc(wgsl_source: string) -> core.Shader_Handle {
 		}
 	}
 
-	// Create bind group layout for group 1 (user uniforms)
+	// Create uniform buffer and CPU staging buffer
 	if entry.uniform_size > 0 {
-		entry.bind_group_layout = wgpu.DeviceCreateBindGroupLayout(
-			r.device,
-			&{
-				entryCount = 1,
-				entries = &wgpu.BindGroupLayoutEntry {
-					binding = 0,
-					visibility = {.Vertex, .Fragment},
-					buffer = {type = .Uniform, minBindingSize = u64(entry.uniform_size)},
-				},
-			},
-		)
-
-		// Create uniform buffer
 		// Round up to 16 bytes for WebGPU minimum buffer size
 		buf_size := u64(align_up(entry.uniform_size, 16))
 		entry.uniform_buffer = wgpu.DeviceCreateBuffer(
@@ -98,23 +115,43 @@ renderer_load_shader :: proc(wgsl_source: string) -> core.Shader_Handle {
 				size = buf_size,
 			},
 		)
-
-		// Create CPU staging buffer
 		entry.uniform_data = make([]u8, entry.uniform_size)
+	}
 
-		// Create bind group
-		entry.bind_group = wgpu.DeviceCreateBindGroup(
-			r.device,
-			&{
-				layout = entry.bind_group_layout,
-				entryCount = 1,
-				entries = &wgpu.BindGroupEntry {
-					binding = 0,
-					buffer = entry.uniform_buffer,
-					size = u64(entry.uniform_size),
+	// Create bind group layout for group 1 (user uniforms + textures)
+	if entry.uniform_size > 0 || len(entry.textures) > 0 {
+		layout_entries := make([dynamic]wgpu.BindGroupLayoutEntry, 0, 1 + len(entry.textures))
+		defer delete(layout_entries)
+
+		if entry.uniform_size > 0 {
+			append(
+				&layout_entries,
+				wgpu.BindGroupLayoutEntry {
+					binding = entry.uniform_binding,
+					visibility = {.Vertex, .Fragment},
+					buffer = {type = .Uniform, minBindingSize = u64(entry.uniform_size)},
 				},
-			},
+			)
+		}
+		for _, &tex in entry.textures {
+			append(
+				&layout_entries,
+				wgpu.BindGroupLayoutEntry {
+					binding = tex.binding,
+					visibility = {.Vertex, .Fragment},
+					texture = {sampleType = .Float, viewDimension = ._2D, multisampled = false},
+				},
+			)
+		}
+
+		entry.bind_group_layout = wgpu.DeviceCreateBindGroupLayout(
+			r.device,
+			&{entryCount = uint(len(layout_entries)), entries = raw_data(layout_entries)},
 		)
+
+		// Create the initial bind group. Unset texture slots point at the
+		// white texture so the shader is valid before assignment.
+		entry.bind_group = shader_create_bind_group(&entry)
 	}
 
 	// Create pipeline layout: [engine group 0, user group 1]
@@ -144,6 +181,86 @@ renderer_load_shader :: proc(wgsl_source: string) -> core.Shader_Handle {
 	// Store in handle map and return the handle.
 	handle, _ := hm.add(&r.shaders, entry)
 	return handle
+}
+
+// Build the group-1 bind group for a custom shader. Bind groups are immutable
+// in wgpu, so texture changes require creating a new one. Texture slots that
+// are unset — or whose texture has been destroyed — resolve to the white texture.
+@(private = "package")
+shader_create_bind_group :: proc(entry: ^Shader_Entry) -> wgpu.BindGroup {
+	r := &renderer
+
+	entries := make([dynamic]wgpu.BindGroupEntry, 0, 1 + len(entry.textures))
+	defer delete(entries)
+
+	if entry.uniform_buffer != nil {
+		append(
+			&entries,
+			wgpu.BindGroupEntry {
+				binding = entry.uniform_binding,
+				buffer = entry.uniform_buffer,
+				size = u64(entry.uniform_size),
+			},
+		)
+	}
+	for _, &tex in entry.textures {
+		view := r.textures[r.white_texture].view
+		if t, ok := &r.textures[tex.texture]; ok {
+			view = t.view
+		}
+		append(&entries, wgpu.BindGroupEntry{binding = tex.binding, textureView = view})
+	}
+
+	if len(entries) == 0 {
+		return nil
+	}
+	return wgpu.DeviceCreateBindGroup(
+		r.device,
+		&{
+			layout = entry.bind_group_layout,
+			entryCount = uint(len(entries)),
+			entries = raw_data(entries),
+		},
+	)
+}
+
+@(private = "package")
+renderer_set_shader_texture :: proc(
+	handle: core.Shader_Handle,
+	name: string,
+	texture: core.Texture_Handle,
+) {
+	r := &renderer
+
+	entry, ok := hm.get(&r.shaders, handle)
+	if !ok {
+		fmt.eprintf("[shader] invalid shader handle\n")
+		return
+	}
+
+	slot, slot_ok := &entry.textures[name]
+	if !slot_ok {
+		fmt.eprintf("[shader] unknown texture binding: %s\n", name)
+		return
+	}
+
+	if _, tex_ok := r.textures[texture]; !tex_ok {
+		fmt.eprintf("[shader] invalid texture handle for binding: %s\n", name)
+		return
+	}
+
+	if slot.texture == texture {
+		return
+	}
+
+	// Quads already batched were issued against the previous texture — draw
+	// them before the bind group is rebuilt (same reason set_shader flushes).
+	if r.batch.active_shader == handle {
+		renderer_flush()
+	}
+
+	slot.texture = texture
+	entry.bind_group_dirty = true
 }
 
 @(private = "package")
@@ -231,6 +348,12 @@ renderer_destroy_shader :: proc(handle: core.Shader_Handle) {
 		delete(key)
 	}
 	delete(entry.uniforms)
+
+	// Free texture binding map keys
+	for key in entry.textures {
+		delete(key)
+	}
+	delete(entry.textures)
 
 	delete(entry.vertex_entry)
 	delete(entry.fragment_entry)

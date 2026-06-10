@@ -101,6 +101,22 @@ renderer_flush :: proc() {
 			entry.uniform_dirty = false
 		}
 
+		// Rebuild the group-1 bind group if a texture binding changed. The old
+		// bind group may have been used earlier in this pass, so defer its
+		// release to after submit via the per-frame ring.
+		if entry.bind_group_dirty {
+			if entry.bind_group != nil {
+				assert(
+					r.frame.bind_group_count < MAX_BIND_GROUPS_PER_FRAME,
+					"Too many bind group changes in one frame",
+				)
+				r.frame.bind_groups[r.frame.bind_group_count] = entry.bind_group
+				r.frame.bind_group_count += 1
+			}
+			entry.bind_group = shader_create_bind_group(entry)
+			entry.bind_group_dirty = false
+		}
+
 		wgpu.RenderPassEncoderSetPipeline(r.frame.pass, entry.pipeline)
 		if r.batch.bind_group != nil {
 			wgpu.RenderPassEncoderSetBindGroup(r.frame.pass, 0, r.batch.bind_group)

@@ -189,6 +189,7 @@ measure_text_ex :: proc(font: Font, text: string, size: f32) -> Vec2
 ```odin
 load_shader :: proc(wgsl_source: string) -> Shader
 set_shader_uniform :: proc(shader: ^Shader, name: string, value: any)
+set_shader_texture :: proc(shader: ^Shader, name: string, texture: Texture)
 set_shader :: proc(shader: ^Shader)
 reset_shader :: proc()
 destroy_shader :: proc(shader: ^Shader)
