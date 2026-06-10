@@ -12,6 +12,14 @@ set_shader_uniform :: proc(shader: ^Shader, name: string, value: any) {
 	ctx.renderer.set_shader_uniform(shader.handle, name, value)
 }
 
+// Bind a texture to a named texture binding on a custom shader.
+// The shader declares the binding in group 1, e.g.
+//   @group(1) @binding(1) var lut: texture_2d<f32>;
+// Until assigned, texture bindings read an engine-owned 1x1 white texture.
+set_shader_texture :: proc(shader: ^Shader, name: string, texture: Texture) {
+	ctx.renderer.set_shader_texture(shader.handle, name, texture.handle)
+}
+
 // Activate a custom shader for subsequent draw calls.
 // Flushes the current batch if a different shader is active.
 set_shader :: proc(shader: ^Shader) {

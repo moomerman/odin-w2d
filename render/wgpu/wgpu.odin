@@ -89,6 +89,15 @@ Shader_Uniform :: struct {
 	type:   Shader_Uniform_Type,
 }
 
+// A group-1 texture binding slot within a custom shader.
+// Stores the handle (not the view) so a destroyed texture fails gracefully:
+// rebuilds fall back to the white texture instead of a dangling view.
+@(private = "package")
+Shader_Texture :: struct {
+	binding: u32,
+	texture: core.Texture_Handle, // zero-value = unset (white texture)
+}
+
 // Internal GPU resources and metadata for a custom shader.
 @(private = "package")
 Shader_Entry :: struct {
@@ -100,15 +109,20 @@ Shader_Entry :: struct {
 	pipeline_layout:   wgpu.PipelineLayout,
 	bind_group_layout: wgpu.BindGroupLayout,
 	bind_group:        wgpu.BindGroup,
+	bind_group_dirty:  bool, // a texture changed — rebuild at next flush
 
 	// Uniform buffer
 	uniform_buffer:    wgpu.Buffer,
 	uniform_data:      []u8,
 	uniform_dirty:     bool,
 	uniform_size:      int,
+	uniform_binding:   u32,
 
 	// Uniform metadata
 	uniforms:          map[string]Shader_Uniform,
+
+	// Texture binding metadata (group 1)
+	textures:          map[string]Shader_Texture,
 
 	// Entry points
 	vertex_entry:      string,
@@ -239,6 +253,7 @@ backend :: proc() -> core.Render_Backend {
 		get_stats = renderer_get_stats,
 		load_shader = renderer_load_shader,
 		set_shader_uniform = renderer_set_shader_uniform,
+		set_shader_texture = renderer_set_shader_texture,
 		set_shader = renderer_set_shader,
 		reset_shader = renderer_reset_shader,
 		destroy_shader = renderer_destroy_shader,
