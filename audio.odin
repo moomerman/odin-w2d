@@ -29,14 +29,23 @@ shutdown_audio :: proc() {
 // register_assets) or, for paths outside the registry, from a file on disk
 // (desktop only).
 load_audio :: proc(path: string, type: Audio_Source_Type = .Static) -> Audio_Source {
+	source: Audio_Source
 	if data, owned, ok := asset_resolve(path); ok {
-		source := ctx.audio.load_from_bytes(data, type)
+		source = ctx.audio.load_from_bytes(data, type)
 		if owned {
 			delete(data)
 		}
-		return source
+	} else {
+		source = ctx.audio.load(path, type)
 	}
-	return ctx.audio.load(path, type)
+	when DEV {
+		// Static sources are watched and hot-reloaded; playing instances of a
+		// reloaded source are stopped. Streams read from their file already.
+		if type == .Static && source != AUDIO_SOURCE_NONE {
+			assets_watch_add_audio(path, source)
+		}
+	}
+	return source
 }
 
 // Load audio from raw bytes in memory (works on all platforms).

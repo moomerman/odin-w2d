@@ -34,6 +34,7 @@ when DEV {
 	Watched_Kind :: enum {
 		Texture,
 		Shader,
+		Audio,
 	}
 
 	@(private = "file")
@@ -43,6 +44,7 @@ when DEV {
 		mtime:   time.Time,
 		texture: Texture_Handle,
 		shader:  Shader_Handle,
+		audio:   Audio_Source,
 		width:   int, // textures: last-known dimensions
 		height:  int,
 	}
@@ -65,6 +67,12 @@ when DEV {
 	assets_watch_add_shader :: proc(path: string, handle: Shader_Handle) {
 		entry := watch_find_or_append(path, .Shader)
 		entry.shader = handle
+	}
+
+	@(private = "package")
+	assets_watch_add_audio :: proc(path: string, source: Audio_Source) {
+		entry := watch_find_or_append(path, .Audio)
+		entry.audio = source
 	}
 
 	// Find the watch entry for path+kind, or append a fresh one. Re-loading
@@ -144,6 +152,12 @@ when DEV {
 						"[assets] shader reload failed, keeping previous: %s",
 						entry.path,
 					)
+				}
+			case .Audio:
+				if ctx.audio.reload_from_bytes(entry.audio, data) {
+					fmt.printfln("[assets] reloaded audio: %s", entry.path)
+				} else {
+					fmt.eprintfln("[assets] audio reload failed, keeping previous: %s", entry.path)
 				}
 			}
 			delete(data)

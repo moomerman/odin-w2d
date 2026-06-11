@@ -18,6 +18,7 @@ backend :: proc() -> core.Audio_Backend {
 		update = ma_update,
 		load = ma_load_audio,
 		load_from_bytes = ma_load_audio_from_bytes,
+		reload_from_bytes = ma_reload_audio_from_bytes,
 		destroy = ma_destroy_audio,
 		get_duration = ma_get_audio_duration,
 		play = ma_play_audio,
@@ -365,6 +366,28 @@ load_from_decoder :: proc(
 	decoder: ^miniaudio.decoder,
 	type: core.Audio_Source_Type,
 ) -> core.Audio_Source {
+	pcm_data, frame_count, ok := decode_all_pcm(decoder)
+	if !ok {
+		return core.AUDIO_SOURCE_NONE
+	}
+
+	source := new(Loaded_Source, state.allocator)
+	source.type = type
+	source.data = pcm_data
+	source.format = .f32
+	source.channels = decoder.outputChannels
+	source.sample_rate = decoder.outputSampleRate
+	source.frame_count = frame_count
+	source.duration = f32(frame_count) / f32(decoder.outputSampleRate)
+
+	append(&state.sources, source)
+	return core.Audio_Source(len(state.sources))
+}
+
+// Read every PCM frame from a decoder into one buffer owned by
+// state.allocator. Shared by load and reload.
+@(private = "file")
+decode_all_pcm :: proc(decoder: ^miniaudio.decoder) -> (pcm: []u8, frames: u64, ok: bool) {
 	channels := decoder.outputChannels
 	bytes_per_frame := channels * size_of(f32)
 
@@ -423,22 +446,76 @@ load_from_decoder :: proc(
 		if result != .SUCCESS {
 			fmt.eprintfln("audio: Failed to read PCM frames: %v", result)
 			delete(pcm_data, state.allocator)
-			return core.AUDIO_SOURCE_NONE
+			return nil, 0, false
 		}
 		frame_count = frames_read
 	}
 
-	source := new(Loaded_Source, state.allocator)
-	source.type = type
-	source.data = pcm_data
-	source.format = .f32
-	source.channels = channels
-	source.sample_rate = decoder.outputSampleRate
-	source.frame_count = frame_count
-	source.duration = f32(frame_count) / f32(decoder.outputSampleRate)
+	return pcm_data, frame_count, true
+}
 
-	append(&state.sources, source)
-	return core.Audio_Source(len(state.sources))
+@(private = "file")
+ma_reload_audio_from_bytes :: proc(source: core.Audio_Source, data: []u8) -> bool {
+	if state == nil do return false
+	if source == core.AUDIO_SOURCE_NONE do return false
+
+	idx := int(source) - 1
+	if idx < 0 || idx >= len(state.sources) do return false
+
+	src := state.sources[idx]
+	if src == nil || src.type != .Static do return false
+
+	if len(data) == 0 {
+		return false
+	}
+
+	// Decode the new audio first so a bad file leaves the old audio intact.
+	engine_sample_rate := miniaudio.engine_get_sample_rate(&state.engine)
+	decoder_config := miniaudio.decoder_config_init(.f32, 0, engine_sample_rate)
+	decoder: miniaudio.decoder
+
+	result := miniaudio.decoder_init_memory(
+		raw_data(data),
+		c.size_t(len(data)),
+		&decoder_config,
+		&decoder,
+	)
+	if result != .SUCCESS {
+		fmt.eprintfln("audio: Failed to decode from memory: %v", result)
+		return false
+	}
+	defer miniaudio.decoder_uninit(&decoder)
+
+	pcm_data, frame_count, ok := decode_all_pcm(&decoder)
+	if !ok {
+		return false
+	}
+
+	// Playing instances read from the PCM buffer we are about to free —
+	// stop and uninit them synchronously (marking finished is not enough;
+	// cleanup is deferred to the next update pass).
+	#reverse for inst, i in state.instances {
+		if inst == nil || inst.source != source do continue
+
+		miniaudio.sound_uninit(&inst.sound)
+		if inst.source_type == .Static {
+			miniaudio.audio_buffer_uninit(&inst.buffer)
+		} else if inst.has_decoder {
+			miniaudio.decoder_uninit(&inst.decoder)
+		}
+		free(inst, state.allocator)
+		state.instances[i] = nil
+	}
+
+	delete(src.data, state.allocator)
+	src.data = pcm_data
+	src.format = .f32
+	src.channels = decoder.outputChannels
+	src.sample_rate = decoder.outputSampleRate
+	src.frame_count = frame_count
+	src.duration = f32(frame_count) / f32(decoder.outputSampleRate)
+
+	return true
 }
 
 @(private = "file")

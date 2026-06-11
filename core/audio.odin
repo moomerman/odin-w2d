@@ -83,6 +83,12 @@ Audio_Backend :: struct {
 	// Load audio from raw bytes in memory. Returns AUDIO_SOURCE_NONE on failure.
 	load_from_bytes:       proc(data: []u8, type: Audio_Source_Type) -> Audio_Source,
 
+	// Replace a static source's decoded audio in place behind its handle.
+	// Playing instances of the source are stopped first. Returns false —
+	// keeping the previous audio — when the source is unknown, streaming,
+	// or decoding fails.
+	reload_from_bytes:     proc(source: Audio_Source, data: []u8) -> bool,
+
 	// Destroy a loaded audio source and free its resources.
 	destroy:               proc(source: Audio_Source),
 

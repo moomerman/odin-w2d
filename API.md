@@ -136,6 +136,29 @@ get_surface_format :: proc() -> u32
 set_pre_present_callback :: proc(callback: proc(pass: rawptr, width, height: u32))
 ```
 
+## Assets
+
+```odin
+// True when built with -define:W2D_DEV=true. Dev builds resolve asset paths
+// from disk first (relative to the working directory) and hot-reload watched
+// files on change (desktop only). Release builds resolve from the registry.
+DEV :: #config(W2D_DEV, false)
+
+// Register compile-time embedded assets, e.g.
+//   w.register_assets("assets", #load_directory("assets"))
+// #load_directory is non-recursive: register each subdirectory separately.
+register_assets :: proc(prefix: string, files: []runtime.Load_Directory_File)
+
+// Path-based loaders. Resolve from the registry (release) or disk (dev).
+// In dev builds, textures and shaders hot-reload in place when the file
+// changes; a failed shader compile keeps the previous program. Audio loaded
+// via load_audio(path) hot-reloads too (playing instances are stopped).
+// Fonts are not hot-reloaded.
+load_texture_from_file :: proc(path: string) -> Texture
+load_shader_from_file :: proc(path: string) -> Shader
+load_font_from_file :: proc(path: string) -> Font
+```
+
 ## Drawing
 
 ```odin
@@ -250,6 +273,9 @@ shutdown_audio :: proc()
 ## Audio - Sources
 
 ```odin
+// load_audio resolves `path` through the asset registry first (works on all
+// platforms for registered assets), falling back to direct file access
+// (desktop only) for unregistered paths.
 load_audio :: proc(path: string, type: Audio_Source_Type = .Static) -> Audio_Source
 load_audio_from_bytes :: proc(data: []u8, type: Audio_Source_Type = .Static) -> Audio_Source
 destroy_audio :: proc(source: Audio_Source)

@@ -25,5 +25,11 @@ assets_watch_add_shader :: proc(path: string, handle: Shader_Handle) {
 }
 
 @(private = "package")
+assets_watch_add_audio :: proc(path: string, source: Audio_Source) {
+	_ = path
+	_ = source
+}
+
+@(private = "package")
 assets_watch_shutdown :: proc() {
 }

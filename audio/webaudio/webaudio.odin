@@ -14,6 +14,7 @@ backend :: proc() -> core.Audio_Backend {
 		update = wa_update,
 		load = wa_load_audio,
 		load_from_bytes = wa_load_audio_from_bytes,
+		reload_from_bytes = wa_reload_audio_from_bytes,
 		destroy = wa_destroy_audio,
 		get_duration = wa_get_audio_duration,
 		play = wa_play_audio,
@@ -176,7 +177,15 @@ wa_load_audio :: proc(path: string, type: core.Audio_Source_Type) -> core.Audio_
 	return core.AUDIO_SOURCE_NONE
 }
 
+// Hot reloading audio sources is not supported on web (there is no disk
+// to watch); always returns false.
 @(private = "file")
+wa_reload_audio_from_bytes :: proc(source: core.Audio_Source, data: []u8) -> bool {
+	_ = source
+	_ = data
+	return false
+}
+
 wa_load_audio_from_bytes :: proc(data: []u8, type: core.Audio_Source_Type) -> core.Audio_Source {
 	if state == nil || !state.initialized {
 		fmt.eprintln("audio: System not initialized")
