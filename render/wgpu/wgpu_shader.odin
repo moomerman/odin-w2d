@@ -9,6 +9,17 @@ import core "../../core"
 
 @(private = "package")
 renderer_load_shader :: proc(wgsl_source: string) -> core.Shader_Handle {
+	entry := shader_build_entry(wgsl_source)
+	handle, _ := hm.add(&renderer.shaders, entry)
+	return handle
+}
+
+// Compile WGSL source into a complete Shader_Entry (module, layouts,
+// pipeline, uniform buffer + metadata). Shared by load and reload.
+// Compilation errors are reported through wgpu's error mechanisms, not a
+// return value — wrap the call in an error scope to detect them.
+@(private = "file")
+shader_build_entry :: proc(wgsl_source: string) -> Shader_Entry {
 	r := &renderer
 	entry: Shader_Entry
 
@@ -178,9 +189,117 @@ renderer_load_shader :: proc(wgsl_source: string) -> core.Shader_Handle {
 		entry.fragment_entry,
 	)
 
-	// Store in handle map and return the handle.
-	handle, _ := hm.add(&r.shaders, entry)
-	return handle
+	return entry
+}
+
+// Release every GPU resource and allocation owned by a Shader_Entry.
+// Shared by destroy and reload. Tolerates partially-built entries.
+@(private = "file")
+shader_release_entry :: proc(entry: ^Shader_Entry) {
+	if entry.bind_group != nil {wgpu.BindGroupRelease(entry.bind_group)}
+	if entry.bind_group_layout != nil {wgpu.BindGroupLayoutRelease(entry.bind_group_layout)}
+	if entry.uniform_buffer != nil {wgpu.BufferRelease(entry.uniform_buffer)}
+	if entry.pipeline != nil {wgpu.RenderPipelineRelease(entry.pipeline)}
+	if entry.pipeline_layout != nil {wgpu.PipelineLayoutRelease(entry.pipeline_layout)}
+	if entry.module != nil {wgpu.ShaderModuleRelease(entry.module)}
+
+	if entry.uniform_data != nil {
+		delete(entry.uniform_data)
+	}
+
+	// Free uniform map keys
+	for key in entry.uniforms {
+		delete(key)
+	}
+	delete(entry.uniforms)
+
+	// Free texture binding map keys
+	for key in entry.textures {
+		delete(key)
+	}
+	delete(entry.textures)
+
+	delete(entry.vertex_entry)
+	delete(entry.fragment_entry)
+}
+
+// Recompile a custom shader from new WGSL source, swapping the program in
+// place behind its existing handle. Returns false — leaving the previous
+// program untouched — when compilation fails. Uniform values and texture
+// bindings are carried over by name where they still match.
+@(private = "package")
+renderer_reload_shader :: proc(handle: core.Shader_Handle, wgsl_source: string) -> bool {
+	r := &renderer
+
+	old, ok := hm.get(&r.shaders, handle)
+	if !ok {
+		return false
+	}
+
+	// wgpu reports WGSL/pipeline errors through error scopes rather than
+	// return values. Validation in wgpu-native is synchronous, but pump
+	// InstanceProcessEvents once in case the callback is deferred.
+	Error_Capture :: struct {
+		fired:     bool,
+		has_error: bool,
+	}
+	capture: Error_Capture
+
+	wgpu.DevicePushErrorScope(r.device, .Validation)
+	new_entry := shader_build_entry(wgsl_source)
+	wgpu.DevicePopErrorScope(r.device, {
+		mode = .AllowProcessEvents,
+		callback = proc "c" (
+			status: wgpu.PopErrorScopeStatus,
+			type: wgpu.ErrorType,
+			message: string,
+			userdata1, userdata2: rawptr,
+		) {
+			capture := (^Error_Capture)(userdata1)
+			capture.fired = true
+			if status == .Success && type != .NoError {
+				capture.has_error = true
+				context = renderer.ctx
+				fmt.eprintfln("[shader] reload failed: %s", message)
+			}
+		},
+		userdata1 = &capture,
+	})
+	if !capture.fired {
+		wgpu.InstanceProcessEvents(r.instance)
+	}
+
+	if capture.has_error {
+		shader_release_entry(&new_entry)
+		return false
+	}
+
+	// Carry over uniform values by name where the field is still compatible.
+	for name, new_uniform in new_entry.uniforms {
+		old_uniform, found := old.uniforms[name]
+		if found && old_uniform.type == new_uniform.type && old_uniform.size == new_uniform.size {
+			copy(
+				new_entry.uniform_data[new_uniform.offset:][:new_uniform.size],
+				old.uniform_data[old_uniform.offset:][:old_uniform.size],
+			)
+			new_entry.uniform_dirty = true
+		}
+	}
+
+	// Carry over texture bindings by name. The bind group built during
+	// shader_build_entry points at the white texture; marking it dirty makes
+	// the next flush rebuild it with the carried-over handles.
+	for name, &slot in new_entry.textures {
+		if old_slot, found := old.textures[name]; found && old_slot.texture != {} {
+			slot.texture = old_slot.texture
+			new_entry.bind_group_dirty = true
+		}
+	}
+
+	shader_release_entry(old)
+	new_entry.handle = handle
+	old^ = new_entry
+	return true
 }
 
 // Build the group-1 bind group for a custom shader. Bind groups are immutable
@@ -332,31 +451,6 @@ renderer_destroy_shader :: proc(handle: core.Shader_Handle) {
 	entry, ok := hm.get(&renderer.shaders, handle)
 	if !ok {return}
 
-	if entry.bind_group != nil {wgpu.BindGroupRelease(entry.bind_group)}
-	if entry.bind_group_layout != nil {wgpu.BindGroupLayoutRelease(entry.bind_group_layout)}
-	if entry.uniform_buffer != nil {wgpu.BufferRelease(entry.uniform_buffer)}
-	if entry.pipeline != nil {wgpu.RenderPipelineRelease(entry.pipeline)}
-	if entry.pipeline_layout != nil {wgpu.PipelineLayoutRelease(entry.pipeline_layout)}
-	if entry.module != nil {wgpu.ShaderModuleRelease(entry.module)}
-
-	if entry.uniform_data != nil {
-		delete(entry.uniform_data)
-	}
-
-	// Free uniform map keys
-	for key in entry.uniforms {
-		delete(key)
-	}
-	delete(entry.uniforms)
-
-	// Free texture binding map keys
-	for key in entry.textures {
-		delete(key)
-	}
-	delete(entry.textures)
-
-	delete(entry.vertex_entry)
-	delete(entry.fragment_entry)
-
+	shader_release_entry(entry)
 	hm.remove(&renderer.shaders, handle)
 }

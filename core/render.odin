@@ -75,6 +75,12 @@ Render_Backend :: struct {
 	// Destroy a texture and free its GPU resources.
 	destroy_texture:          proc(handle: Texture_Handle),
 
+	// Replace the contents of an existing texture in place behind its handle.
+	// Same-size reloads update pixels only; size changes recreate the GPU
+	// texture and rebind any custom-shader bindings that reference it.
+	// Must be called outside begin_frame/present.
+	reload_texture:           proc(handle: Texture_Handle, data: []u8, width, height: int),
+
 	// Get the built-in 1x1 white texture used for solid color drawing.
 	get_white_texture:        proc() -> Texture_Handle,
 
@@ -83,6 +89,12 @@ Render_Backend :: struct {
 
 	// Load a custom shader from WGSL source. Returns an opaque handle.
 	load_shader:              proc(wgsl_source: string) -> Shader_Handle,
+
+	// Recompile a custom shader from new WGSL source in place behind its
+	// handle. Returns false — keeping the previous program intact — if
+	// compilation fails. Uniform values and texture bindings are preserved
+	// by name where compatible. Must be called outside begin_frame/present.
+	reload_shader:            proc(handle: Shader_Handle, wgsl_source: string) -> bool,
 
 	// Set a uniform value by name on a custom shader.
 	set_shader_uniform:       proc(handle: Shader_Handle, name: string, value: any),

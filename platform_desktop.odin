@@ -26,6 +26,12 @@ platform_run :: proc() {
 			if ctx.frame_proc != nil {
 				process_input()
 				calculate_frame_time()
+				// Hot-reload changed asset files in dev builds. Runs between
+				// frames, before any render pass exists, which is what makes
+				// in-place GPU resource swaps safe. Compiled out of release.
+				when DEV {
+					assets_poll()
+				}
 				ctx.audio.update()
 				ctx.frame_proc(ctx.frame_time)
 			}

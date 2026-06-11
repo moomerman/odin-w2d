@@ -1,5 +1,6 @@
 package renderer_wgpu
 
+import hm "core:container/handle_map"
 import "vendor:wgpu"
 
 import core "../../core"
@@ -108,6 +109,83 @@ renderer_update_texture :: proc(
 		&{bytesPerRow = u32(width) * 4, rowsPerImage = u32(height)},
 		&{u32(width), u32(height), 1},
 	)
+}
+
+// Replace the contents of an existing texture in place. The handle stays
+// valid: same-size reloads are a plain pixel upload; size changes recreate
+// the underlying GPU texture and dirty any custom-shader bind groups that
+// reference it. Must be called outside begin_frame/present.
+@(private = "package")
+renderer_reload_texture :: proc(handle: core.Texture_Handle, data: []u8, width, height: int) {
+	r := &renderer
+
+	entry, ok := &r.textures[handle]
+	if !ok {
+		return
+	}
+
+	if entry.width == width && entry.height == height {
+		wgpu.QueueWriteTexture(
+			r.queue,
+			&{texture = entry.handle},
+			raw_data(data),
+			uint(len(data)),
+			&{bytesPerRow = u32(width) * 4, rowsPerImage = u32(height)},
+			&{u32(width), u32(height), 1},
+		)
+		return
+	}
+
+	// Dimensions changed — recreate the GPU texture behind the same handle.
+	// Releasing the old objects is safe between frames: wgpu keeps them alive
+	// until any in-flight GPU work that uses them completes.
+	tex := wgpu.DeviceCreateTexture(
+		r.device,
+		&{
+			usage = {.TextureBinding, .CopyDst},
+			dimension = ._2D,
+			size = {u32(width), u32(height), 1},
+			format = .RGBA8Unorm,
+			mipLevelCount = 1,
+			sampleCount = 1,
+		},
+	)
+	tex_view := wgpu.TextureCreateView(tex, nil)
+
+	wgpu.QueueWriteTexture(
+		r.queue,
+		&{texture = tex},
+		raw_data(data),
+		uint(len(data)),
+		&{bytesPerRow = u32(width) * 4, rowsPerImage = u32(height)},
+		&{u32(width), u32(height), 1},
+	)
+
+	if entry.view != nil {
+		wgpu.TextureViewRelease(entry.view)
+	}
+	if entry.handle != nil {
+		wgpu.TextureRelease(entry.handle)
+	}
+
+	r.current_stats.texture_memory += (width * height - entry.width * entry.height) * 4
+
+	entry.handle = tex
+	entry.view = tex_view
+	entry.width = width
+	entry.height = height
+
+	// Custom shaders cache bind groups that reference the old view — mark
+	// them dirty so the next flush rebuilds against the new one.
+	it := hm.iterator_make(&r.shaders)
+	for shader_entry, _ in hm.iterate(&it) {
+		for _, &slot in shader_entry.textures {
+			if slot.texture == handle {
+				shader_entry.bind_group_dirty = true
+				break
+			}
+		}
+	}
 }
 
 @(private = "package")
