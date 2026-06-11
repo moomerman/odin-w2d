@@ -1,0 +1,24 @@
+dev:
+    odin run . -define:W2D_DEV=true
+
+run:
+    odin run .
+
+build-release:
+    mkdir -p build
+    odin build . -o:aggressive -out:build/game{{ if os_family() == "windows" { ".exe" } else { "" } }}
+
+build-web:
+    odin run ../../../tools/build_web -- .
+
+serve-web: build-web
+    echo "-> http://localhost:8080"
+    python3 -m http.server 8080 -b localhost -d build/init_template-web
+
+check:
+    odin check . -vet -strict-style -vet-semicolon -vet-cast -vet-using-param -vet-shadowing -vet-packages:main,game -warnings-as-errors
+
+format:
+    odinfmt -w .
+
+verify: format check build-release build-web
