@@ -7,7 +7,8 @@
 //
 // The `load_*_from_file` procs then resolve paths like "assets/player.png"
 // from the in-memory registry — one self-contained binary on desktop and web,
-// same as #load.
+// same as #load. Paths outside the registry fall back to a plain disk read on
+// desktop (relative to the working directory), so loose files keep working.
 //
 // Dev (-define:W2D_DEV=true): the same loader calls read from disk relative to
 // the current working directory (live files win over the registry), and on
@@ -60,8 +61,10 @@ register_assets :: proc(prefix: string, files: []runtime.Load_Directory_File) {
 }
 
 // Resolve an asset path to its bytes. In dev mode the disk is checked first
-// (live files win); the registry is the fallback. `owned` is true when the
-// caller is responsible for the returned memory (disk reads only).
+// (live files win) with the registry as fallback; in release the registry is
+// checked first, falling back to disk for unregistered paths (desktop only —
+// there is no disk on web). `owned` is true when the caller is responsible
+// for the returned memory (disk reads only).
 @(private = "package")
 asset_resolve :: proc(path: string) -> (data: []u8, owned: bool, ok: bool) {
 	when DEV {
@@ -72,6 +75,11 @@ asset_resolve :: proc(path: string) -> (data: []u8, owned: bool, ok: bool) {
 	if reg_data, found := asset_registry.files[path]; found {
 		return reg_data, false, true
 	}
+	when !DEV {
+		if disk_data, disk_ok := asset_read_disk(path); disk_ok {
+			return disk_data, true, true
+		}
+	}
 	return nil, false, false
 }
 
@@ -80,16 +88,18 @@ asset_resolve_or_panic :: proc(path: string) -> (data: []u8, owned: bool) {
 	resolved, is_owned, ok := asset_resolve(path)
 	if !ok {
 		fmt.panicf(
-			"[assets] asset not found: %q — did you call register_assets? " +
-			"(in dev mode, paths are also resolved from disk relative to the working directory)",
+			"[assets] asset not found: %q — not in the registry and not on disk " +
+			"(disk paths resolve relative to the working directory; web builds " +
+			"resolve from the registry only — did you call register_assets?)",
 			path,
 		)
 	}
 	return resolved, is_owned
 }
 
-// Load a texture from a registered asset path (or, in dev mode, from disk).
-// In dev mode the file is watched and hot-reloaded in place when it changes.
+// Load a texture from a registered asset path, or from a file on disk
+// (desktop only). In dev mode the file is watched and hot-reloaded in place
+// when it changes.
 load_texture_from_file :: proc(path: string) -> Texture {
 	data, owned := asset_resolve_or_panic(path)
 	tex := load_texture(data)
@@ -102,9 +112,10 @@ load_texture_from_file :: proc(path: string) -> Texture {
 	return tex
 }
 
-// Load a custom WGSL shader from a registered asset path (or, in dev mode,
-// from disk). In dev mode the file is watched and recompiled in place when it
-// changes; if the new source fails to compile, the previous shader is kept.
+// Load a custom WGSL shader from a registered asset path, or from a file on
+// disk (desktop only). In dev mode the file is watched and recompiled in
+// place when it changes; if the new source fails to compile, the previous
+// shader is kept.
 load_shader_from_file :: proc(path: string) -> Shader {
 	data, owned := asset_resolve_or_panic(path)
 	shader := load_shader(string(data))
@@ -117,9 +128,10 @@ load_shader_from_file :: proc(path: string) -> Shader {
 	return shader
 }
 
-// Load a TTF font from a registered asset path (or, in dev mode, from disk).
-// The font bytes are retained for the lifetime of the engine (the text system
-// references them without copying). Fonts are not hot-reloaded.
+// Load a TTF font from a registered asset path, or from a file on disk
+// (desktop only). The font bytes are retained for the lifetime of the engine
+// (the text system references them without copying). Fonts are not
+// hot-reloaded.
 load_font_from_file :: proc(path: string) -> Font {
 	data, owned := asset_resolve_or_panic(path)
 	font := load_font(data)

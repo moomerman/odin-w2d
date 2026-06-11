@@ -30,7 +30,11 @@ shutdown_audio :: proc() {
 // (desktop only).
 load_audio :: proc(path: string, type: Audio_Source_Type = .Static) -> Audio_Source {
 	source: Audio_Source
-	if data, owned, ok := asset_resolve(path); ok {
+	if type == .Stream && path not_in asset_registry.files {
+		// Unregistered streams use the backend's own file loader so large
+		// music files stream from disk instead of being copied into memory.
+		source = ctx.audio.load(path, type)
+	} else if data, owned, ok := asset_resolve(path); ok {
 		source = ctx.audio.load_from_bytes(data, type)
 		if owned {
 			delete(data)

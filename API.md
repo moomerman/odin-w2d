@@ -141,7 +141,8 @@ set_pre_present_callback :: proc(callback: proc(pass: rawptr, width, height: u32
 ```odin
 // True when built with -define:W2D_DEV=true. Dev builds resolve asset paths
 // from disk first (relative to the working directory) and hot-reload watched
-// files on change (desktop only). Release builds resolve from the registry.
+// files on change (desktop only). Release builds resolve from the registry
+// first, falling back to disk for unregistered paths (desktop only).
 DEV :: #config(W2D_DEV, false)
 
 // Register compile-time embedded assets, e.g.
@@ -149,8 +150,9 @@ DEV :: #config(W2D_DEV, false)
 // #load_directory is non-recursive: register each subdirectory separately.
 register_assets :: proc(prefix: string, files: []runtime.Load_Directory_File)
 
-// Path-based loaders. Resolve from the registry (release) or disk (dev).
-// In dev builds, textures and shaders hot-reload in place when the file
+// Path-based loaders. Resolve from the registry or disk (see DEV above; on
+// web, registry only). In dev builds, textures and shaders hot-reload in
+// place when the file
 // changes; a failed shader compile keeps the previous program. Audio loaded
 // via load_audio(path) hot-reloads too (playing instances are stopped).
 // Fonts are not hot-reloaded.
