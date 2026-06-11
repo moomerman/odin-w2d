@@ -25,8 +25,17 @@ shutdown_audio :: proc() {
 // SOURCE MANAGEMENT   //
 //---------------------//
 
-// Load audio from a file path (desktop only).
+// Load audio from a registered asset path (works on all platforms — see
+// register_assets) or, for paths outside the registry, from a file on disk
+// (desktop only).
 load_audio :: proc(path: string, type: Audio_Source_Type = .Static) -> Audio_Source {
+	if data, owned, ok := asset_resolve(path); ok {
+		source := ctx.audio.load_from_bytes(data, type)
+		if owned {
+			delete(data)
+		}
+		return source
+	}
 	return ctx.audio.load(path, type)
 }
 

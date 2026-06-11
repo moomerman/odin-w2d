@@ -234,8 +234,7 @@ load_texture :: proc(bytes: []u8, width: int = 0, height: int = 0) -> Texture {
 		return Texture{handle = handle, width = width, height = height}
 	}
 
-	// Encoded image — decode via core:image.
-	img, img_err := image.load_from_bytes(bytes, {.alpha_add_if_missing})
+	img, img_err := decode_image(bytes)
 	if img_err != nil {
 		fmt.panicf("[engine] failed to load texture: %v", img_err)
 	}
@@ -243,6 +242,13 @@ load_texture :: proc(bytes: []u8, width: int = 0, height: int = 0) -> Texture {
 
 	handle := ctx.renderer.create_texture(img.pixels.buf[:], img.width, img.height)
 	return Texture{handle = handle, width = img.width, height = img.height}
+}
+
+// Decode an encoded image (PNG/BMP/TGA) into RGBA8. The caller owns the
+// result and must free it with image.destroy.
+@(private = "package")
+decode_image :: proc(bytes: []u8) -> (img: ^image.Image, err: image.Error) {
+	return image.load_from_bytes(bytes, {.alpha_add_if_missing})
 }
 
 @(private = "file")

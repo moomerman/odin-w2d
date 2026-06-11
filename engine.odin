@@ -150,6 +150,7 @@ on_window_resize :: proc() {
 engine_shutdown :: proc() {
 	ctx.audio.shutdown()
 	text_shutdown()
+	assets_shutdown()
 	ctx.renderer.shutdown()
 	ctx.window.shutdown()
 	ctx.initialized = false

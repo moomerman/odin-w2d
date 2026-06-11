@@ -53,6 +53,15 @@ print :: proc(verbosity := Print_Verbosity.full_always, max_rows := 10) {
 	print_bad_frees(max_rows)
 }
 
+// Render a table to a string and print it via fmt, which works on every
+// target (table.stdio_writer is unavailable on wasm).
+@(private)
+print_table :: proc(tbl: ^table.Table) {
+	sb := strings.builder_make(context.temp_allocator)
+	table.write_plain_table(strings.to_writer(&sb), tbl)
+	fmt.print(strings.to_string(sb))
+}
+
 @(private)
 print_stats :: proc() {
 	fmt_i64 :: proc(i: i64) -> string {return format_int_tmp(int(i))}
@@ -69,7 +78,7 @@ print_stats :: proc() {
 	table.row(&tbl, "Total allocation count", fmt_i64(track.total_allocation_count))
 	table.row(&tbl, "Total free count", fmt_i64(track.total_free_count))
 
-	table.write_plain_table(table.stdio_writer(), &tbl)
+	print_table(&tbl)
 }
 
 @(private)
@@ -96,7 +105,7 @@ print_not_freed_allocations :: proc(max_rows: int) {
 		}
 	}
 
-	table.write_plain_table(table.stdio_writer(), &tbl)
+	print_table(&tbl)
 }
 
 @(private)
@@ -123,7 +132,7 @@ print_bad_frees :: proc(max_rows: int) {
 		}
 	}
 
-	table.write_plain_table(table.stdio_writer(), &tbl)
+	print_table(&tbl)
 }
 
 @(private)
