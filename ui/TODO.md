@@ -1,0 +1,1 @@
+Deliberately out of scope for v1, in rough order of likely need: scroll containers (engine scissor support is ready for it), text input widgets (blocked on rune events from the engine), wrap/shrink layout, and a proper SDF rounded-rect primitive in the engine to replace the triangle-fan approximation.

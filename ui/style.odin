@@ -4,12 +4,13 @@ package ui
 
 import w ".."
 
-// merge returns base with every non-zero field of over applied on top — the
+// merge returns base with every set field of over applied on top — the
 // composition primitive for style presets:
 //   BTN :: ui.Style{px = 14, py = 8, radius = 6}
 //   ui.button("Quit", ui.merge(BTN, {bg = RED}))
-// Zero means "unset" here, so a zero-valued field of over (e.g. dir = .Col,
-// transition = 0) cannot override a non-zero base field.
+// For non-Maybe fields, zero means "unset": a zero-valued field of over
+// (e.g. dir = .Col, transition = 0) cannot override a non-zero base field.
+// Colors are Maybe, so an explicit BLANK does override.
 merge :: proc(base, over: Style) -> Style {
 	out := base
 
@@ -31,12 +32,12 @@ merge :: proc(base, over: Style) -> Style {
 	if over.align != .Start {out.align = over.align}
 	if over.justify != .Start {out.justify = over.justify}
 
-	if over.bg != (Color{}) {out.bg = over.bg}
+	if over.bg != nil {out.bg = over.bg}
 	if over.radius != 0 {out.radius = over.radius}
 	if over.border != 0 {out.border = over.border}
-	if over.border_color != (Color{}) {out.border_color = over.border_color}
+	if over.border_color != nil {out.border_color = over.border_color}
 
-	if over.fg != (Color{}) {out.fg = over.fg}
+	if over.fg != nil {out.fg = over.fg}
 	if over.font != 0 {out.font = over.font}
 	if over.font_size != 0 {out.font_size = over.font_size}
 
@@ -74,7 +75,7 @@ _set_theme :: proc(theme: Theme) {
 			px = 14,
 			py = 8,
 			radius = 6,
-			bg = {255, 255, 255, 20},
+			bg = Color{255, 255, 255, 20},
 			hover = {bg = Color{255, 255, 255, 45}},
 			press = {offset = {0, 1}},
 			transition = 0.12,
@@ -104,7 +105,7 @@ _resolve_style :: proc(e: ^Element) {
 	if s.pb != 0 {pad_b = s.pb}
 	e.pad = {pad_l, pad_r, pad_t, pad_b}
 
-	if s.fg == (Color{}) {
+	if s.fg == nil {
 		s.fg = state.theme.fg
 	}
 	if s.font == 0 {

@@ -22,14 +22,18 @@ _render :: proc() {
 
 		rect := _xform_rect(e.xform, e.pos, e.size)
 
-		bg := _blend(e.style.bg, e.style.hover.bg, hover_k)
+		bg := _blend(e.style.bg.? or_else Color{}, e.style.hover.bg, hover_k)
 		bg = _blend(bg, e.style.press.bg, press_k)
 		if bg.a > 0 {
 			_draw_round_rect(rect, e.style.radius * e.xform.scale, bg)
 		}
 
 		if e.style.border > 0 {
-			bc := _blend(e.style.border_color, e.style.hover.border_color, hover_k)
+			bc := _blend(
+				e.style.border_color.? or_else Color{},
+				e.style.hover.border_color,
+				hover_k,
+			)
 			bc = _blend(bc, e.style.press.border_color, press_k)
 			if bc.a > 0 {
 				w.draw_rect_outline(rect, e.style.border * e.xform.scale, bc)
@@ -39,15 +43,19 @@ _render :: proc() {
 		switch e.kind {
 		case .Text:
 			if len(e.text) > 0 {
-				fg := _blend(e.style.fg, e.style.hover.fg, hover_k)
+				fg := _blend(e.style.fg.? or_else Color{}, e.style.hover.fg, hover_k)
 				fg = _blend(fg, e.style.press.fg, press_k)
 				// Center the measured text inside the padded box, so
 				// grow-sized buttons keep their caption centered.
 				inner := e.pos + {e.pad[0], e.pad[2]}
 				avail := e.size - {e.pad[0] + e.pad[1], e.pad[2] + e.pad[3]}
 				inner += (avail - e.content) / 2
-				pos := inner * e.xform.scale + e.xform.translate
-				w.draw_text_ex(e.style.font, e.text, pos, e.style.font_size * e.xform.scale, fg)
+				// Glyphs keep their declared size under scale transforms:
+				// fontstash quantizes metrics to 0.1px, so animating the
+				// drawn font size makes letter spacing jitter glyph by
+				// glyph. Only the text block's center follows the scale.
+				center := (inner + e.content / 2) * e.xform.scale + e.xform.translate
+				w.draw_text_ex(e.style.font, e.text, center - e.content / 2, e.style.font_size, fg)
 			}
 		case .Image:
 			if e.texture.width > 0 {
@@ -76,7 +84,10 @@ _render :: proc() {
 }
 
 // _blend lerps base toward an override color by t; nil overrides leave the
-// base untouched.
+// base untouched. The lerp runs in premultiplied-alpha space: lerping
+// straight-alpha components between colors of very different alpha swings
+// through bright low-alpha values (translucent white to opaque dark flashes
+// light), while premultiplied interpolation stays on the perceptual path.
 @(private)
 _blend :: proc(base: Color, over: Maybe(Color), t: f32) -> Color {
 	target, ok := over.?
@@ -86,10 +97,18 @@ _blend :: proc(base: Color, over: Maybe(Color), t: f32) -> Color {
 	if t >= 1 {
 		return target
 	}
-	out: Color
-	for i in 0 ..< 4 {
-		out[i] = u8(f32(base[i]) + (f32(target[i]) - f32(base[i])) * t)
+	base_a := f32(base.a) / 255
+	target_a := f32(target.a) / 255
+	a := base_a + (target_a - base_a) * t
+	if a <= 0 {
+		return {}
 	}
+	out: Color
+	for i in 0 ..< 3 {
+		pre := f32(base[i]) * base_a + (f32(target[i]) * target_a - f32(base[i]) * base_a) * t
+		out[i] = u8(clamp(pre / a, 0, 255))
+	}
+	out.a = u8(clamp(a * 255 + 0.5, 0, 255))
 	return out
 }
 

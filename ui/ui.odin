@@ -87,14 +87,16 @@ Style :: struct {
 	align:                      Align,
 	justify:                    Justify,
 
-	// appearance
-	bg:                         Color, // zero = transparent (not drawn)
+	// appearance — Maybe colors distinguish "unset" (nil: transparent for bg,
+	// theme-inherited for fg) from an explicit value, so merge can override a
+	// preset's color with BLANK.
+	bg:                         Maybe(Color), // nil = transparent (not drawn)
 	radius:                     f32, // corner radius
 	border:                     f32, // outline thickness, 0 = none
-	border_color:               Color,
+	border_color:               Maybe(Color),
 
 	// text (label/button)
-	fg:                         Color, // zero = inherit theme
+	fg:                         Maybe(Color), // nil = inherit theme
 	font:                       Font, // zero = theme font
 	font_size:                  f32, // zero = theme size
 
