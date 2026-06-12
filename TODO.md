@@ -141,6 +141,15 @@ Add:
   document the current vsync behavior
 - focus / minimized queries (auto-pause), and possibly a focus-change callback
 - window icon (lower priority; desktop only)
+- **Live-resize rendering on macOS**: dragging a window edge enters AppKit's
+  modal resize tracking loop, so `nextEventMatchingMask` in
+  `window/darwin/darwin.odin` blocks the frame loop and the compositor
+  stretches the last presented drawable (content squashes until release).
+  Fix: render a frame from inside `windowDidResize` (the delegate fires
+  throughout the drag; engine needs a "pump one frame" hook), or drive frames
+  from a timer scheduled in `NSEventTrackingRunLoopMode`. For gap-free polish,
+  set `CAMetalLayer.presentsWithTransaction = true` during live resize. The
+  SDL3 backend has the same issue with its own fix (event watch callbacks).
 
 ### 5. Blend modes
 
