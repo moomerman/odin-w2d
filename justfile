@@ -32,6 +32,9 @@ check-example:
 check:
     odin check . -no-entry-point {{vet_flags}} -vet-packages:engine,core,backend,renderer_wgpu,window_darwin,window_sdl3,window_js,audio_miniaudio,audio_webaudio
 
+check-ui:
+    odin check ui -no-entry-point {{vet_flags}} -vet-packages:ui
+
 check-tools:
     odin check tools/build_web {{vet_flags}} -vet-packages:build_web
     odin check tools/time_tracker -no-entry-point {{vet_flags}} -vet-packages:time_tracker
@@ -48,4 +51,4 @@ check-all-examples:
 format:
     odinfmt -w .
 
-verify: format check check-tools check-all-examples
+verify: format check check-ui check-tools check-all-examples
