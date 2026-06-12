@@ -1,1 +1,3 @@
 Deliberately out of scope for v1, in rough order of likely need: scroll containers (engine scissor support is ready for it), text input widgets (blocked on rune events from the engine), wrap/shrink layout, and a proper SDF rounded-rect primitive in the engine to replace the triangle-fan approximation.
+
+Learnings from the older Clay-backed ui lib (odin-games-k2/r2/ui.odin) worth porting: custom elements (layout-managed bounds with a user render callback — minimaps, previews, charts) and per-side border widths (e.g. a bottom-only underline for tabs). If hover ever needs to change properties beyond color/scale/offset, extend Overrides rather than adding will_hover-style pre-checks.

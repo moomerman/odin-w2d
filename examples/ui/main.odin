@@ -25,6 +25,7 @@ TAB :: ui.Style {
 tabs := [?]string{"Home", "Library", "Settings"}
 active_tab := 0
 plays := 0
+logo: w.Texture
 
 main :: proc() {
 	w.init(1280, 720, "UI Example")
@@ -33,6 +34,7 @@ main :: proc() {
 
 init :: proc() {
 	ui.init()
+	logo = w.load_texture(#load("../texture/logo.png"))
 }
 
 frame :: proc(_: f32) {
@@ -42,6 +44,7 @@ frame :: proc(_: f32) {
 		if ui.vbox({w = ui.pct(100), h = ui.pct(100)}) {
 			// Toolbar: horizontal, padded, animated hover on each tab.
 			if ui.hbox({w = ui.GROW, p = 12, gap = 8, bg = BAR, align = .Center}) {
+				ui.image(logo, {w = 28, h = 28})
 				ui.label("my game", {fg = w.WHITE, font_size = 22})
 				ui.spacer()
 				for tab, i in tabs {
@@ -75,7 +78,10 @@ frame :: proc(_: f32) {
 						if ui.clicked() {
 							plays += 1
 						}
-						ui.label("LEVEL", {fg = w.LIGHT_GRAY, font_size = 12})
+						if ui.hbox({gap = 6, align = .Center}) {
+							ui.image(logo, {w = 16, h = 16})
+							ui.label("LEVEL", {fg = w.LIGHT_GRAY, font_size = 12})
+						}
 						ui.label(tabs[i % len(tabs)], {fg = w.WHITE, font_size = 20})
 					}
 				}
