@@ -69,6 +69,22 @@ Key :: enum u16 {
     Right_Ctrl, Right_Shift, Right_Alt, Right_Super,
 }
 
+Gamepad_Index :: int // 0..MAX_GAMEPADS-1
+
+Gamepad_Button :: enum {
+    South, East, West, North, // face buttons (Xbox A/B/X/Y, PS Cross/Circle/Square/Triangle)
+    Left_Shoulder, Right_Shoulder,
+    Left_Trigger, Right_Trigger, // threshold-based digital view of the trigger axes
+    Left_Stick, Right_Stick, // stick clicks (L3/R3)
+    Dpad_Up, Dpad_Down, Dpad_Left, Dpad_Right,
+    Start, Select, Guide,
+}
+
+Gamepad_Axis :: enum {
+    Left_X, Left_Y, Right_X, Right_Y, // sticks, -1..1
+    Left_Trigger, Right_Trigger, // 0..1
+}
+
 System_Cursor :: enum {
     Default, Text, Crosshair, Pointer,
     Resize_EW, Resize_NS, Resize_NWSE, Resize_NESW,
@@ -108,6 +124,9 @@ Audio_Play_Params :: struct {
 ## Constants
 
 ```odin
+// Input
+MAX_GAMEPADS :: 4
+
 // Sentinel handles
 AUDIO_SOURCE_NONE :: Audio_Source(0)
 AUDIO_INSTANCE_NONE :: Audio_Instance(0)
@@ -254,6 +273,27 @@ mouse_button_is_held :: proc(button: Mouse_Button) -> bool
 key_went_down :: proc(key: Key) -> bool
 key_went_up :: proc(key: Key) -> bool
 key_is_held :: proc(key: Key) -> bool
+```
+
+## Input - Gamepad
+
+Opt-in: call `init_gamepad()` once before `run()`. Up to `MAX_GAMEPADS` (4)
+controllers, addressed by slot (`Gamepad_Index`, 0 = player one). Buttons are
+named by physical position (`South`/`East`/`West`/`North` face buttons, etc.) so
+code is vendor-neutral across Xbox/PlayStation/Switch. Sticks read -1..1,
+triggers 0..1. Before `init_gamepad()` (or for disconnected / out-of-range
+slots), queries return zero values and vibration is a no-op.
+
+```odin
+init_gamepad :: proc()      // call once, before run()
+shutdown_gamepad :: proc()  // optional; engine also does this on exit
+is_gamepad_connected :: proc(gamepad: Gamepad_Index) -> bool
+get_gamepad_name :: proc(gamepad: Gamepad_Index) -> string
+gamepad_button_went_down :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -> bool
+gamepad_button_went_up :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -> bool
+gamepad_button_is_held :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -> bool
+get_gamepad_axis :: proc(gamepad: Gamepad_Index, axis: Gamepad_Axis) -> f32
+set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left, right: f32, duration: f32 = 0)
 ```
 
 ## Input - Cursor

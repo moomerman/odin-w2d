@@ -21,6 +21,13 @@ Input_State :: struct {
 	key_held:                 [KEY_COUNT]bool,
 	key_went_down:            [KEY_COUNT]bool,
 	key_went_up:              [KEY_COUNT]bool,
+	// Gamepad snapshots. The backend fills `gamepads_curr` each frame; `gamepads_prev`
+	// holds the previous frame so the accessors can derive went-down / went-up edges.
+	gamepads_curr:            [core.MAX_GAMEPADS]core.Gamepad_State,
+	gamepads_prev:            [core.MAX_GAMEPADS]core.Gamepad_State,
+	// The gamepad subsystem inits lazily on first use, so games that never touch a
+	// gamepad don't pay its startup cost (~hundreds of ms on some platforms).
+	gamepad_active:           bool,
 }
 
 @(private = "package")
@@ -96,7 +103,15 @@ process_input :: proc() {
 			input.mouse_deferred_up[btn] = true
 		}
 	}
+
+	// Poll gamepads once the subsystem has been activated by first use. Keep last
+	// frame's snapshot so the went-down / went-up accessors can diff against it.
+	if input.gamepad_active {
+		input.gamepads_prev = input.gamepads_curr
+		ctx.gamepad.poll(&input.gamepads_curr)
+	}
 }
+
 
 //------------//
 // PUBLIC API //
@@ -148,6 +163,98 @@ key_went_up :: proc(key: Key) -> bool {
 // Returns true if the key is currently held down.
 key_is_held :: proc(key: Key) -> bool {
 	return input.key_held[int(key)]
+}
+
+//---------//
+// GAMEPAD //
+//---------//
+
+// Initialize the gamepad subsystem. Opt-in (like init_audio) so games that
+// don't use a gamepad pay none of its startup cost. Call this once, before
+// `run()` — on macOS the underlying SDL gamepad init must happen before the
+// native window's event loop starts. Until it is called, the gamepad queries
+// below report no controllers and vibration is a no-op.
+init_gamepad :: proc() {
+	if input.gamepad_active {
+		return
+	}
+	input.gamepad_active = true
+	ctx.gamepad.init()
+}
+
+// Shut down the gamepad subsystem and release any open controllers. Optional —
+// the engine also does this automatically on exit if init_gamepad was called.
+shutdown_gamepad :: proc() {
+	if !input.gamepad_active {
+		return
+	}
+	ctx.gamepad.shutdown()
+	input.gamepad_active = false
+}
+
+// Returns true if a controller is connected in the given slot (0..3).
+// Out-of-range slots return false.
+is_gamepad_connected :: proc(gamepad: Gamepad_Index) -> bool {
+	if gamepad < 0 || gamepad >= core.MAX_GAMEPADS {
+		return false
+	}
+	return input.gamepads_curr[gamepad].connected
+}
+
+// Returns the human-readable name of the controller in the given slot, or ""
+// if the slot is empty or out of range. The string is valid until the next frame.
+get_gamepad_name :: proc(gamepad: Gamepad_Index) -> string {
+	if gamepad < 0 || gamepad >= core.MAX_GAMEPADS {
+		return ""
+	}
+	return input.gamepads_curr[gamepad].name
+}
+
+// Returns true if the gamepad button was pressed this frame.
+gamepad_button_went_down :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -> bool {
+	if gamepad < 0 || gamepad >= core.MAX_GAMEPADS {
+		return false
+	}
+	return(
+		input.gamepads_curr[gamepad].button_held[button] &&
+		!input.gamepads_prev[gamepad].button_held[button] \
+	)
+}
+
+// Returns true if the gamepad button was released this frame.
+gamepad_button_went_up :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -> bool {
+	if gamepad < 0 || gamepad >= core.MAX_GAMEPADS {
+		return false
+	}
+	return(
+		!input.gamepads_curr[gamepad].button_held[button] &&
+		input.gamepads_prev[gamepad].button_held[button] \
+	)
+}
+
+// Returns true if the gamepad button is currently held down.
+gamepad_button_is_held :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -> bool {
+	if gamepad < 0 || gamepad >= core.MAX_GAMEPADS {
+		return false
+	}
+	return input.gamepads_curr[gamepad].button_held[button]
+}
+
+// Returns the value of an analog axis. Sticks range -1..1 (negative = left/up),
+// triggers range 0..1. Disconnected or out-of-range slots return 0.
+get_gamepad_axis :: proc(gamepad: Gamepad_Index, axis: Gamepad_Axis) -> f32 {
+	if gamepad < 0 || gamepad >= core.MAX_GAMEPADS {
+		return 0
+	}
+	return input.gamepads_curr[gamepad].axes[axis]
+}
+
+// Set the rumble motor intensities (0..1) for a controller. `left` drives the
+// low-frequency (heavy) motor, `right` the high-frequency (light) motor.
+// `duration` is in seconds; 0 means "until changed" (refresh by calling each
+// frame). No-op for empty or out-of-range slots, or backends without rumble.
+set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left, right: f32, duration: f32 = 0) {
+	ctx.gamepad.set_vibration(gamepad, left, right, duration)
 }
 
 // Show the OS cursor.

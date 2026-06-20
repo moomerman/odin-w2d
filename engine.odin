@@ -13,6 +13,7 @@ Context :: struct {
 	window:          Window_Backend,
 	renderer:        Render_Backend,
 	audio:           Audio_Backend,
+	gamepad:         Gamepad_Backend,
 	initialized:     bool,
 	init_proc:       proc(),
 	frame_proc:      proc(dt: f32),
@@ -43,8 +44,11 @@ init :: proc(width: int, height: int, title: string) {
 	ctx.window = defaults.window
 	ctx.renderer = defaults.renderer
 	ctx.audio = defaults.audio
+	ctx.gamepad = defaults.gamepad
 
 	ctx.window.init(width, height, title, on_window_resize)
+	// Gamepad init is deferred to first use (see ensure_gamepad_active) so it
+	// stays off the startup path for games that don't read a gamepad.
 
 	ctx.start_time = time.now()
 	ctx.prev_frame_time = ctx.start_time
@@ -149,6 +153,9 @@ on_window_resize :: proc() {
 @(private = "package")
 engine_shutdown :: proc() {
 	ctx.audio.shutdown()
+	if input.gamepad_active {
+		ctx.gamepad.shutdown()
+	}
 	text_shutdown()
 	assets_shutdown()
 	ctx.renderer.shutdown()

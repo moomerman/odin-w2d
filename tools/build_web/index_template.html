@@ -20,6 +20,7 @@
         <script type="text/javascript" src="odin.js"></script>
         <script type="text/javascript" src="wgpu.js"></script>
         <script type="text/javascript" src="audio_webaudio.js"></script>
+        <script type="text/javascript" src="gamepad_js.js"></script>
         <script type="text/javascript">
             const mem = new WebAssembly.Memory({
                 initial: 2000,
@@ -36,10 +37,18 @@
                 window.setAudioWasmMemory(mem)
             }
 
-            // Merge audio JS imports alongside wgpu imports
+            // Wire gamepad WASM memory so JS can write gamepad state to WASM heap
+            if (window.setGamepadWasmMemory) {
+                window.setGamepadWasmMemory(mem)
+            }
+
+            // Merge audio and gamepad JS imports alongside wgpu imports
             const extraImports = { wgpu: wgpuInterface.getInterface() }
             if (window.audioJsImports) {
                 Object.assign(extraImports, window.audioJsImports)
+            }
+            if (window.gamepadJsImports) {
+                Object.assign(extraImports, window.gamepadJsImports)
             }
 
             odin.runWasm(

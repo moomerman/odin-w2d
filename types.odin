@@ -11,6 +11,11 @@ Mouse_Button :: core.Mouse_Button
 Key :: core.Key
 System_Cursor :: core.System_Cursor
 Window_Mode :: core.Window_Mode
+Gamepad_Backend :: core.Gamepad_Backend
+MAX_GAMEPADS :: core.MAX_GAMEPADS
+Gamepad_Index :: core.Gamepad_Index
+Gamepad_Button :: core.Gamepad_Button
+Gamepad_Axis :: core.Gamepad_Axis
 
 Font :: core.Font
 Vec2 :: core.Vec2

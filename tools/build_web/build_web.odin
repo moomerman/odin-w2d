@@ -123,6 +123,13 @@ main :: proc() {
 		fmt.printfln("Copied audio_webaudio.js")
 	}
 
+	// Copy gamepad_js.js
+	gamepad_js_path := path_join({project_root, "gamepad", "js", "gamepad_js.js"})
+	if os.exists(gamepad_js_path) {
+		os.copy_file(path_join({bin_web_dir, "gamepad_js.js"}), gamepad_js_path)
+		fmt.printfln("Copied gamepad_js.js")
+	}
+
 	// Build the wasm.
 	INITIAL_MEMORY_PAGES :: 2000
 	MAX_MEMORY_PAGES :: 65536

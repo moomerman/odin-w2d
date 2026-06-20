@@ -21,81 +21,35 @@ on draw calls, scissor rect) have been removed — see `API.md` for what shipped
 
 ## High priority — blocks whole categories of games
 
-### 1. Gamepad input
+### 1. Gamepad input — SHIPPED (desktop + web)
 
-Mirror the keyboard/mouse input pattern: `went_down`, `went_up`, `is_held`
-state arrays reset each frame. Axis values are polled (analog sticks produce
-continuous values). Support up to 4 gamepads.
+Public API (`input.odin`): `is_gamepad_connected`, `get_gamepad_name`,
+`gamepad_button_went_down / went_up / is_held`, `get_gamepad_axis`,
+`set_gamepad_vibration` — up to `MAX_GAMEPADS` (4), poll+diff model mirroring
+keyboard/mouse. Types in `core/gamepad.odin`; `examples/gamepad` demos sticks,
+face buttons, triggers, D-pad, hot-plug, and rumble.
 
-1. **`core/core.odin`** — Add types:
+Gamepad is its **own backend** (`core.Gamepad_Backend`), decoupled from
+`Window_Backend`, because SDL3's gamepad subsystem runs independently of
+windowing. One SDL3 implementation (`gamepad/sdl3/`) covers **all desktop
+platforms including macOS** — macOS now links SDL3 for gamepad input while
+keeping the native Cocoa window. This brings hot-plug, the SDL_GameControllerDB
+mapping database, and rumble for free; no per-OS (evdev/XInput) or native
+GameController-framework code was needed.
 
-   ```
-   MAX_GAMEPADS :: 4
-   Gamepad_Index :: int  // 0 to MAX_GAMEPADS-1
+Web is backed by the browser Gamepad API: `gamepad/js/gamepad_js.js` packs a
+snapshot into the wasm heap (`window.gamepadJsImports`, wired in
+`tools/build_web/index_template.html` like the audio shim) and
+`gamepad/js/gamepad_js.odin` unpacks it. Standard-mapping remap; rumble via
+`vibrationActuator`. Browser caveats: a controller is only visible after the user
+presses a button on it, and non-standard-mapping pads may mislabel buttons.
 
-   Gamepad_Button :: enum {
-       // Face buttons
-       South, East, West, North,     // A/B/X/Y (Xbox) or Cross/Circle/Square/Triangle (PS)
-       // Shoulders
-       Left_Shoulder, Right_Shoulder,
-       // Triggers (as buttons, threshold-based)
-       Left_Trigger, Right_Trigger,
-       // Sticks
-       Left_Stick, Right_Stick,
-       // D-pad
-       Dpad_Up, Dpad_Down, Dpad_Left, Dpad_Right,
-       // Menu
-       Start, Select, Guide,
-   }
+**Remaining:**
 
-   Gamepad_Axis :: enum {
-       Left_X, Left_Y,
-       Right_X, Right_Y,
-       Left_Trigger, Right_Trigger,
-   }
-   ```
-
-2. **`core/input.odin`** — Add:
-
-   ```
-   Gamepad_State :: struct {
-       connected:   bool,
-       button_down: [Gamepad_Button]bool, // went down this frame
-       button_up:   [Gamepad_Button]bool, // went up this frame
-       button_held: [Gamepad_Button]bool, // currently held
-       axes:        [Gamepad_Axis]f32,    // -1..1 for sticks, 0..1 for triggers
-   }
-   gamepads: [MAX_GAMEPADS]Gamepad_State
-   ```
-
-3. **`core/window.odin`** — Add to `Window_Backend`:
-   - `poll_gamepads: proc(state: ^[MAX_GAMEPADS]Gamepad_State)`
-   - `set_gamepad_vibration: proc(index: Gamepad_Index, left, right: f32)`
-
-4. **`input.odin`** — Public API:
-   - `is_gamepad_connected(gamepad: Gamepad_Index) -> bool`
-   - `gamepad_button_went_down / went_up / is_held(gamepad, button) -> bool`
-   - `get_gamepad_axis(gamepad: Gamepad_Index, axis: Gamepad_Axis) -> f32`
-   - `set_gamepad_vibration(gamepad: Gamepad_Index, left, right: f32)`
-
-5. **Platform backends**:
-   - **macOS** (`#+build darwin`): GameController framework, `CHHapticEngine`
-     for vibration
-   - **Web** (`#+build js`): `navigator.getGamepads()` via JS interop, diff
-     previous/current state for went_down/went_up
-   - **Linux**: evdev + udev hotplug; **Windows**: XInput
-   - SDL3 backend can likely cover Linux/Windows in one go via the SDL gamepad
-     API — check before writing per-OS code.
-
-6. **Engine frame loop** — reset `button_down`/`button_up`, call
-   `poll_gamepads`, diff against previous frame.
-
-**Implementation order**: macOS (dev platform), then web, then Linux/Windows.
-
-**Follow-up**: consider an optional action-mapping layer on top (Usagi's
-`input.pressed(action)` unions keyboard + gamepad buttons + analog stick behind
-one abstract action — the single nicest part of its input API). Raw API first;
-the action layer can be a separate file or even an example initially.
+- **Action-mapping layer (follow-up):** an optional layer where one named action
+  unions keyboard + gamepad buttons + analog stick behind a single
+  `input.pressed(action)` (Usagi's nicest input idea). Raw API shipped first; the
+  action layer can be a separate file or an example.
 
 ### 2. Text input events + clipboard
 
