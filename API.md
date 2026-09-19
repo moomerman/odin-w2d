@@ -25,6 +25,13 @@ Render_Texture :: struct {
     texture: Texture,
 }
 
+Blend_Mode :: enum {
+    Alpha,               // default: src*a + dst*(1-a)
+    Additive,            // src*a + dst — lights, particles, glow
+    Multiply,            // src*dst + dst*(1-a) — shadows, light-map compositing
+    Premultiplied_Alpha, // src + dst*(1-a)
+}
+
 Camera :: struct {
     target:   Vec2,   // world point the camera looks at
     offset:   Vec2,   // screen offset (set to screen_center to center the target)
@@ -231,7 +238,13 @@ measure_text_ex :: proc(font: Font, text: string, size: f32) -> Vec2
 ## Shaders
 
 ```odin
-load_shader :: proc(wgsl_source: string) -> Shader
+// ok is optional. A shader that fails to compile logs the error and returns
+// ok = false, but stays usable: draws fall back to the default shader until
+// a hot-reload of fixed source succeeds.
+load_shader :: proc(wgsl_source: string) -> (shader: Shader, ok: bool)
+// Array uniforms (array<T, N>, N a literal or an integer const) take a
+// fixed array, slice or dynamic array; elements are copied into the WGSL
+// stride, so [N][3]f32 fills array<vec3f, N>.
 set_shader_uniform :: proc(shader: ^Shader, name: string, value: any)
 set_shader_texture :: proc(shader: ^Shader, name: string, texture: Texture)
 set_shader :: proc(shader: ^Shader)
@@ -247,6 +260,15 @@ screen_to_world :: proc(pos: Vec2, camera: Camera) -> Vec2
 world_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2
 camera_view_matrix :: proc(c: Camera) -> matrix[4, 4]f32
 camera_world_matrix :: proc(c: Camera) -> matrix[4, 4]f32
+```
+
+## Blend Modes
+
+```odin
+// Applies to default and custom shaders; persists across render-texture
+// switches and resets to .Alpha each frame.
+set_blend_mode :: proc(mode: Blend_Mode)
+reset_blend_mode :: proc()
 ```
 
 ## Scissor

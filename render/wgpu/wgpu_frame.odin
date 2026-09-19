@@ -21,6 +21,7 @@ renderer_begin_frame :: proc(color: core.Color) -> bool {
 	r.batch.bind_group = nil
 	r.frame.bind_group_count = 0
 	r.batch.active_shader = {}
+	r.batch.blend_mode = .Alpha
 	r.projection_slot = 0
 	r.projection_offset = 0
 
@@ -87,8 +88,9 @@ renderer_flush :: proc() {
 	gpu_offset := uint(r.batch.buffer_offset * VERTEX_FLOATS * size_of(f32))
 	wgpu.QueueWriteBuffer(r.queue, r.vertex_buffer, u64(gpu_offset), &r.batch.vertices, data_size)
 
-	// Use the custom shader pipeline if active, otherwise the default.
-	if entry, ok := hm.get(&r.shaders, r.batch.active_shader); ok {
+	// Use the custom shader pipeline if active (and compiled), otherwise the default.
+	entry, ok := hm.get(&r.shaders, r.batch.active_shader)
+	if ok && entry.pipelines[.Alpha] != nil {
 		// Upload dirty uniforms
 		if entry.uniform_dirty && entry.uniform_buffer != nil {
 			wgpu.QueueWriteBuffer(
@@ -117,7 +119,7 @@ renderer_flush :: proc() {
 			entry.bind_group_dirty = false
 		}
 
-		wgpu.RenderPassEncoderSetPipeline(r.frame.pass, entry.pipeline)
+		wgpu.RenderPassEncoderSetPipeline(r.frame.pass, shader_pipeline(entry, r.batch.blend_mode))
 		if r.batch.bind_group != nil {
 			wgpu.RenderPassEncoderSetBindGroup(r.frame.pass, 0, r.batch.bind_group)
 		}
@@ -125,7 +127,7 @@ renderer_flush :: proc() {
 			wgpu.RenderPassEncoderSetBindGroup(r.frame.pass, 1, entry.bind_group)
 		}
 	} else {
-		wgpu.RenderPassEncoderSetPipeline(r.frame.pass, r.pipeline)
+		wgpu.RenderPassEncoderSetPipeline(r.frame.pass, r.pipelines[r.batch.blend_mode])
 		if r.batch.bind_group != nil {
 			wgpu.RenderPassEncoderSetBindGroup(r.frame.pass, 0, r.batch.bind_group)
 		}

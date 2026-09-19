@@ -137,6 +137,7 @@ destroy_shader(&shader)
 | `examples/text` | Font loading, measurement, outlined text |
 | `examples/audio` | Sound playback |
 | `examples/shader` | Custom WGSL shader with uniforms |
+| `examples/lighting` | Array uniforms, additive/multiply blend modes, failed-shader fallback |
 | `examples/collisions` | Collision detection |
 | `examples/lemmings` | Full game: sprites, animation, terrain, audio |
 

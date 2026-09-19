@@ -20,6 +20,16 @@ Render_Texture :: struct {
 	texture: Texture,
 }
 
+// How drawn pixels combine with what is already in the render target.
+// Alpha is the default. Additive suits lights, particles and glow;
+// Multiply suits shadows and light-map compositing.
+Blend_Mode :: enum {
+	Alpha, // src*a + dst*(1-a)
+	Additive, // src*a + dst
+	Multiply, // src*dst + dst*(1-a)
+	Premultiplied_Alpha, // src + dst*(1-a)
+}
+
 // Render_Backend abstracts over different rendering implementations.
 // Currently the only backend is wgpu (render/wgpu package).
 Render_Backend :: struct {
@@ -87,8 +97,10 @@ Render_Backend :: struct {
 	// Get rendering statistics for the most recently completed frame.
 	get_stats:                proc(frame_time: f32) -> Stats,
 
-	// Load a custom shader from WGSL source. Returns an opaque handle.
-	load_shader:              proc(wgsl_source: string) -> Shader_Handle,
+	// Load a custom shader from WGSL source. Returns an opaque handle. If
+	// compilation fails, ok is false but the handle is still valid: draws
+	// with it use the default shader until a successful reload_shader.
+	load_shader:              proc(wgsl_source: string) -> (handle: Shader_Handle, ok: bool),
 
 	// Recompile a custom shader from new WGSL source in place behind its
 	// handle. Returns false — keeping the previous program intact — if
@@ -110,6 +122,9 @@ Render_Backend :: struct {
 
 	// Destroy a custom shader and free its GPU resources.
 	destroy_shader:           proc(handle: Shader_Handle),
+
+	// Set the blend mode for subsequent draw calls (default and custom shaders).
+	set_blend_mode:           proc(mode: Blend_Mode),
 
 	// Create a render texture that can be drawn into as a render target.
 	create_render_texture:    proc(width, height: int) -> Texture_Handle,

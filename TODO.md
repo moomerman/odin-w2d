@@ -105,7 +105,12 @@ Add:
   set `CAMetalLayer.presentsWithTransaction = true` during live resize. The
   SDL3 backend has the same issue with its own fix (event watch callbacks).
 
-### 5. Blend modes
+### 5. Blend modes — SHIPPED
+
+Shipped as designed below, with per-shader pipelines created lazily per mode
+(`shader_pipeline`). The mode lives in the renderer's batch state, so it
+already survives render-target switches; it resets to `.Alpha` each frame.
+See `examples/lighting`.
 
 In wgpu, blend state is baked into the pipeline, so each mode is a pre-built
 pipeline; flush the batch and switch on change.

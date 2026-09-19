@@ -3,11 +3,20 @@ package engine
 // Load a custom shader from WGSL source.
 // Custom shaders must declare the same group 0 bindings as the engine
 // (projection, sampler, texture) and use group 1 for user uniforms.
-load_shader :: proc(wgsl_source: string) -> Shader {
-	return Shader{handle = ctx.renderer.load_shader(wgsl_source)}
+// If compilation fails the error is logged and ok is false, but the shader
+// is still usable: draws with it fall back to the default shader, and a
+// later hot-reload of fixed source brings it to life.
+load_shader :: proc(wgsl_source: string) -> (shader: Shader, ok: bool) #optional_ok {
+	shader.handle, ok = ctx.renderer.load_shader(wgsl_source)
+	return
 }
 
-// Set a uniform value by name on a custom shader.
+// Set a uniform value by name on a custom shader. Array uniforms
+// (array<T, N>) take a fixed array or slice of matching elements, e.g.
+//   lights: [16][4]f32
+//   w.set_shader_uniform(&shader, "lights", lights)
+// Elements are copied into the WGSL array stride, so [N][3]f32 fills an
+// array<vec3f, N> correctly. Extra elements are ignored.
 set_shader_uniform :: proc(shader: ^Shader, name: string, value: any) {
 	ctx.renderer.set_shader_uniform(shader.handle, name, value)
 }

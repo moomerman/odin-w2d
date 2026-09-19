@@ -115,7 +115,8 @@ load_texture_from_file :: proc(path: string) -> Texture {
 // Load a custom WGSL shader from a registered asset path, or from a file on
 // disk (desktop only). In dev mode the file is watched and recompiled in
 // place when it changes; if the new source fails to compile, the previous
-// shader is kept.
+// shader is kept. A shader that fails its first compile draws with the
+// default shader until the file is fixed.
 load_shader_from_file :: proc(path: string) -> Shader {
 	data, owned := asset_resolve_or_panic(path)
 	shader := load_shader(string(data))
