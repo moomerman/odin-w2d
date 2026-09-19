@@ -24,14 +24,19 @@ WGSL_Type :: enum {
 	Struct, // user-defined struct
 }
 
-// A single field within a WGSL struct.
+// A single field within a WGSL struct. For array<T, N> fields, type and
+// struct_name describe the element type T.
 WGSL_Field :: struct {
 	name:        string,
+	type_name:   string, // the field's type as written, e.g. "array<vec4f, 16>"
 	type:        WGSL_Type,
 	struct_name: string, // non-empty when type == .Struct
+	is_array:    bool,
+	count:       int, // array element count (0 if not an array, or unresolved)
 	offset:      int, // byte offset within the struct (computed)
-	size:        int, // byte size (computed)
+	size:        int, // byte size (computed; 0 if the type is unknown)
 	align:       int, // alignment requirement (computed)
+	stride:      int, // array element stride (computed)
 }
 
 // A parsed WGSL struct definition.
@@ -53,6 +58,7 @@ WGSL_Binding :: struct {
 
 // Result of parsing a WGSL source string.
 WGSL_Parse_Result :: struct {
+	consts:         map[string]int, // integer module-scope consts, for array counts
 	structs:        [dynamic]WGSL_Struct,
 	bindings:       [dynamic]WGSL_Binding,
 	vertex_entry:   string,
@@ -112,6 +118,91 @@ parse_wgsl_type :: proc(type_str: string) -> (type: WGSL_Type, is_struct: bool) 
 	return .Struct, true
 }
 
+// Split a type into its array element type and count. is_array is false for
+// non-array types. count is 0 for runtime-sized arrays or a count that is
+// neither an integer literal nor a known integer const.
+parse_wgsl_array :: proc(
+	type_str: string,
+	consts: ^map[string]int,
+) -> (
+	elem: string,
+	is_array: bool,
+	count: int,
+) {
+	s := strings.trim_space(type_str)
+	if !strings.has_prefix(s, "array<") || !strings.has_suffix(s, ">") {
+		return s, false, 0
+	}
+	inner := s[len("array<"):len(s) - 1]
+	comma := strings.last_index(inner, ",")
+	if comma < 0 {
+		return strings.trim_space(inner), true, 0
+	}
+	elem = strings.trim_space(inner[:comma])
+	count_str := strings.trim_space(inner[comma + 1:])
+	if len(count_str) > 0 && count_str[0] >= '0' && count_str[0] <= '9' {
+		count = parse_int_simple(count_str)
+	} else {
+		count = consts[count_str] or_else 0
+	}
+	return elem, true, count
+}
+
+// Parse a module-scope integer const, e.g. "const MAX_LIGHTS = 16u;" or
+// "const MAX_LIGHTS: u32 = 16;". Returns ok = false for anything else.
+parse_wgsl_const :: proc(line: string) -> (name: string, value: int, ok: bool) {
+	if !strings.has_prefix(line, "const ") {return}
+	rest := line[len("const "):]
+	eq := strings.index(rest, "=")
+	if eq < 0 {return}
+	name = strings.trim_space(rest[:eq])
+	if colon := strings.index(name, ":"); colon >= 0 {
+		name = strings.trim_space(name[:colon])
+	}
+	value_str := strings.trim_space(strings.trim_right(strings.trim_space(rest[eq + 1:]), ";"))
+	if len(value_str) == 0 || value_str[0] < '0' || value_str[0] > '9' {return}
+	// Only plain decimal literals, optionally suffixed with i or u.
+	for c, i in value_str {
+		if c >= '0' && c <= '9' {continue}
+		if i == len(value_str) - 1 && (c == 'i' || c == 'u') {continue}
+		return
+	}
+	return name, parse_int_simple(value_str), true
+}
+
+// Return source with // and /* */ comments replaced by spaces. Newlines are
+// kept so the line structure is preserved. WGSL block comments nest.
+strip_wgsl_comments :: proc(source: string, allocator := context.allocator) -> string {
+	out := make([]u8, len(source), allocator)
+	depth := 0
+	i := 0
+	for i < len(source) {
+		next: u8 = i + 1 < len(source) ? source[i + 1] : 0
+		if depth == 0 && source[i] == '/' && next == '/' {
+			for i < len(source) && source[i] != '\n' {
+				out[i] = ' '
+				i += 1
+			}
+			continue
+		}
+		if source[i] == '/' && next == '*' {
+			depth += 1
+			out[i], out[i + 1] = ' ', ' '
+			i += 2
+			continue
+		}
+		if depth > 0 && source[i] == '*' && next == '/' {
+			depth -= 1
+			out[i], out[i + 1] = ' ', ' '
+			i += 2
+			continue
+		}
+		out[i] = depth > 0 && source[i] != '\n' ? ' ' : source[i]
+		i += 1
+	}
+	return string(out)
+}
+
 // Round up `offset` to the next multiple of `align_`.
 align_up :: proc(offset: int, align_: int) -> int {
 	if align_ == 0 {return offset}
@@ -143,6 +234,14 @@ compute_struct_layout :: proc(s: ^WGSL_Struct, all_structs: ^[dynamic]WGSL_Struc
 			field.size, field.align = wgsl_type_layout(field.type)
 		}
 
+		// Arrays: elements sit at a stride of the element size rounded up to
+		// its alignment. (Uniform buffers additionally require the stride to
+		// be a multiple of 16 — the WGSL compiler reports that, not us.)
+		if field.is_array {
+			field.stride = align_up(field.size, field.align)
+			field.size = field.stride * field.count
+		}
+
 		// Align field offset
 		offset = align_up(offset, field.align)
 		field.offset = offset
@@ -162,8 +261,19 @@ compute_struct_layout :: proc(s: ^WGSL_Struct, all_structs: ^[dynamic]WGSL_Struc
 parse_wgsl :: proc(source: string) -> WGSL_Parse_Result {
 	result: WGSL_Parse_Result
 
-	lines := strings.split_lines(source)
+	stripped := strip_wgsl_comments(source)
+	defer delete(stripped)
+
+	lines := strings.split_lines(stripped)
 	defer delete(lines)
+
+	// Collect integer consts first so array counts can reference them
+	// regardless of declaration order.
+	for raw_line in lines {
+		if name, value, ok := parse_wgsl_const(strings.trim_space(raw_line)); ok {
+			result.consts[strings.clone(name)] = value
+		}
+	}
 
 	i := 0
 	for i < len(lines) {
@@ -232,14 +342,18 @@ parse_wgsl :: proc(source: string) -> WGSL_Parse_Result {
 				field_type_str = strings.trim_right(field_type_str, ",;")
 				field_type_str = strings.trim_space(field_type_str)
 
-				field_type, is_struct := parse_wgsl_type(field_type_str)
+				elem_type_str, is_array, count := parse_wgsl_array(field_type_str, &result.consts)
+				field_type, is_struct := parse_wgsl_type(elem_type_str)
 
 				field := WGSL_Field {
-					name = strings.clone(field_name),
-					type = field_type,
+					name      = strings.clone(field_name),
+					type_name = strings.clone(field_type_str),
+					type      = field_type,
+					is_array  = is_array,
+					count     = count,
 				}
 				if is_struct {
-					field.struct_name = strings.clone(field_type_str)
+					field.struct_name = strings.clone(elem_type_str)
 				}
 
 				append(&s.fields, field)
@@ -380,6 +494,7 @@ destroy_parse_result :: proc(result: ^WGSL_Parse_Result) {
 		delete(s.name)
 		for &f in s.fields {
 			delete(f.name)
+			delete(f.type_name)
 			if len(f.struct_name) > 0 {
 				delete(f.struct_name)
 			}
@@ -387,6 +502,11 @@ destroy_parse_result :: proc(result: ^WGSL_Parse_Result) {
 		delete(s.fields)
 	}
 	delete(result.structs)
+
+	for name in result.consts {
+		delete(name)
+	}
+	delete(result.consts)
 
 	for &b in result.bindings {
 		delete(b.name)

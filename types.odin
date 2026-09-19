@@ -25,6 +25,7 @@ Camera :: core.Camera
 Texture :: core.Texture
 Shader :: core.Shader
 Render_Texture :: core.Render_Texture
+Blend_Mode :: core.Blend_Mode
 Stats :: core.Stats
 
 Audio_Source :: core.Audio_Source

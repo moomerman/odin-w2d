@@ -1,5 +1,6 @@
 package renderer_wgpu
 
+import "base:runtime"
 import hm "core:container/handle_map"
 import "core:fmt"
 import "core:strings"
@@ -7,17 +8,76 @@ import "vendor:wgpu"
 
 import core "../../core"
 
+// A shader that fails to compile still gets a handle: its uniform and texture
+// metadata is kept so values can be set, draws fall back to the default
+// pipeline, and a later reload (e.g. hot-reload of fixed source) revives it.
 @(private = "package")
-renderer_load_shader :: proc(wgsl_source: string) -> core.Shader_Handle {
-	entry := shader_build_entry(wgsl_source)
-	handle, _ := hm.add(&renderer.shaders, entry)
-	return handle
+renderer_load_shader :: proc(wgsl_source: string) -> (handle: core.Shader_Handle, ok: bool) {
+	entry: Shader_Entry
+	entry, ok = shader_build_entry_checked(wgsl_source)
+	handle, _ = hm.add(&renderer.shaders, entry)
+	return handle, ok
+}
+
+// Build a Shader_Entry inside a validation error scope so compile errors are
+// logged and reported instead of reaching wgpu's uncaptured-error handler
+// (which aborts the process). On failure the entry's GPU objects are released
+// and nil'd, but its CPU-side metadata is kept.
+@(private = "file")
+shader_build_entry_checked :: proc(wgsl_source: string) -> (entry: Shader_Entry, ok: bool) {
+	when ODIN_OS == .JS {
+		// Browser WebGPU reports errors asynchronously and never aborts —
+		// invalid objects just log to the console. Hot reload is desktop-only,
+		// so there is nothing to recover into.
+		return shader_build_entry(wgsl_source), true
+	} else {
+		r := &renderer
+
+		// wgpu reports WGSL/pipeline errors through error scopes rather than
+		// return values. Validation in wgpu-native is synchronous, but pump
+		// InstanceProcessEvents once in case the callback is deferred.
+		Error_Capture :: struct {
+			fired:     bool,
+			has_error: bool,
+		}
+		capture: Error_Capture
+
+		wgpu.DevicePushErrorScope(r.device, .Validation)
+		entry = shader_build_entry(wgsl_source)
+		wgpu.DevicePopErrorScope(r.device, {
+			mode = .AllowProcessEvents,
+			callback = proc "c" (
+				status: wgpu.PopErrorScopeStatus,
+				type: wgpu.ErrorType,
+				message: string,
+				userdata1, userdata2: rawptr,
+			) {
+				capture := (^Error_Capture)(userdata1)
+				capture.fired = true
+				if status == .Success && type != .NoError {
+					capture.has_error = true
+					context = renderer.ctx
+					fmt.eprintfln("[shader] compile failed: %s", message)
+				}
+			},
+			userdata1 = &capture,
+		})
+		if !capture.fired {
+			wgpu.InstanceProcessEvents(r.instance)
+		}
+
+		if capture.has_error {
+			shader_release_gpu(&entry)
+			return entry, false
+		}
+		return entry, true
+	}
 }
 
 // Compile WGSL source into a complete Shader_Entry (module, layouts,
-// pipeline, uniform buffer + metadata). Shared by load and reload.
+// alpha-blend pipeline, uniform buffer + metadata). Shared by load and reload.
 // Compilation errors are reported through wgpu's error mechanisms, not a
-// return value — wrap the call in an error scope to detect them.
+// return value — use shader_build_entry_checked to detect them.
 @(private = "file")
 shader_build_entry :: proc(wgsl_source: string) -> Shader_Entry {
 	r := &renderer
@@ -88,27 +148,31 @@ shader_build_entry :: proc(wgsl_source: string) -> Shader_Entry {
 			entry.uniforms = make(map[string]Shader_Uniform)
 
 			for &field in s.fields {
-				uniform_type: Shader_Uniform_Type
-				#partial switch field.type {
-				case .F32:
-					uniform_type = .F32
-				case .I32:
-					uniform_type = .I32
-				case .U32:
-					uniform_type = .U32
-				case .Vec2F32:
-					uniform_type = .Vec2F32
-				case .Vec3F32:
-					uniform_type = .Vec3F32
-				case .Vec4F32:
-					uniform_type = .Vec4F32
-				case .Mat4x4F32:
-					uniform_type = .Mat4x4F32
+				if field.size == 0 {
+					// Unknown type or unresolved array count: every later
+					// offset (and the buffer size) will be wrong.
+					fmt.eprintfln(
+						"[shader] uniform %q: can't determine the size of type %q — uniform layout will be wrong",
+						field.name,
+						field.type_name,
+					)
+					continue
+				}
+				uniform_type, supported := shader_uniform_type(field.type)
+				if !supported {
+					fmt.eprintfln(
+						"[shader] uniform %q: type %q can't be set from code",
+						field.name,
+						field.type_name,
+					)
+					continue
 				}
 				entry.uniforms[strings.clone(field.name)] = Shader_Uniform {
 					offset = field.offset,
 					size   = field.size,
 					type   = uniform_type,
+					count  = field.count,
+					stride = field.stride,
 				}
 			}
 		}
@@ -180,28 +244,86 @@ shader_build_entry :: proc(wgsl_source: string) -> Shader_Entry {
 		)
 	}
 
-	// Create render pipeline (same vertex layout as default)
-	entry.pipeline = create_render_pipeline(
+	// Create the alpha-blend render pipeline (same vertex layout as default).
+	// Other blend modes are created on first use by shader_pipeline.
+	entry.pipelines[.Alpha] = create_render_pipeline(
 		r.device,
 		entry.pipeline_layout,
 		entry.module,
 		entry.vertex_entry,
 		entry.fragment_entry,
+		.Alpha,
 	)
 
 	return entry
+}
+
+// Map a parsed WGSL type to a settable uniform type. Structs aren't settable.
+@(private = "file")
+shader_uniform_type :: proc(type: WGSL_Type) -> (Shader_Uniform_Type, bool) {
+	switch type {
+	case .F32:
+		return .F32, true
+	case .I32:
+		return .I32, true
+	case .U32:
+		return .U32, true
+	case .Vec2F32:
+		return .Vec2F32, true
+	case .Vec3F32:
+		return .Vec3F32, true
+	case .Vec4F32:
+		return .Vec4F32, true
+	case .Mat4x4F32:
+		return .Mat4x4F32, true
+	case .Struct:
+	}
+	return {}, false
+}
+
+// Returns the custom shader's pipeline for a blend mode, creating it on first
+// use. Only called for entries that compiled (pipelines[.Alpha] != nil).
+@(private = "package")
+shader_pipeline :: proc(entry: ^Shader_Entry, mode: core.Blend_Mode) -> wgpu.RenderPipeline {
+	if entry.pipelines[mode] == nil {
+		entry.pipelines[mode] = create_render_pipeline(
+			renderer.device,
+			entry.pipeline_layout,
+			entry.module,
+			entry.vertex_entry,
+			entry.fragment_entry,
+			mode,
+		)
+	}
+	return entry.pipelines[mode]
+}
+
+// Release and nil every GPU object owned by a Shader_Entry, leaving its
+// CPU-side metadata intact. Tolerates partially-built entries.
+@(private = "file")
+shader_release_gpu :: proc(entry: ^Shader_Entry) {
+	if entry.bind_group != nil {wgpu.BindGroupRelease(entry.bind_group)}
+	if entry.bind_group_layout != nil {wgpu.BindGroupLayoutRelease(entry.bind_group_layout)}
+	if entry.uniform_buffer != nil {wgpu.BufferRelease(entry.uniform_buffer)}
+	for &pipeline in entry.pipelines {
+		if pipeline != nil {wgpu.RenderPipelineRelease(pipeline)}
+		pipeline = nil
+	}
+	if entry.pipeline_layout != nil {wgpu.PipelineLayoutRelease(entry.pipeline_layout)}
+	if entry.module != nil {wgpu.ShaderModuleRelease(entry.module)}
+
+	entry.bind_group = nil
+	entry.bind_group_layout = nil
+	entry.uniform_buffer = nil
+	entry.pipeline_layout = nil
+	entry.module = nil
 }
 
 // Release every GPU resource and allocation owned by a Shader_Entry.
 // Shared by destroy and reload. Tolerates partially-built entries.
 @(private = "file")
 shader_release_entry :: proc(entry: ^Shader_Entry) {
-	if entry.bind_group != nil {wgpu.BindGroupRelease(entry.bind_group)}
-	if entry.bind_group_layout != nil {wgpu.BindGroupLayoutRelease(entry.bind_group_layout)}
-	if entry.uniform_buffer != nil {wgpu.BufferRelease(entry.uniform_buffer)}
-	if entry.pipeline != nil {wgpu.RenderPipelineRelease(entry.pipeline)}
-	if entry.pipeline_layout != nil {wgpu.PipelineLayoutRelease(entry.pipeline_layout)}
-	if entry.module != nil {wgpu.ShaderModuleRelease(entry.module)}
+	shader_release_gpu(entry)
 
 	if entry.uniform_data != nil {
 		delete(entry.uniform_data)
@@ -236,40 +358,8 @@ renderer_reload_shader :: proc(handle: core.Shader_Handle, wgsl_source: string) 
 		return false
 	}
 
-	// wgpu reports WGSL/pipeline errors through error scopes rather than
-	// return values. Validation in wgpu-native is synchronous, but pump
-	// InstanceProcessEvents once in case the callback is deferred.
-	Error_Capture :: struct {
-		fired:     bool,
-		has_error: bool,
-	}
-	capture: Error_Capture
-
-	wgpu.DevicePushErrorScope(r.device, .Validation)
-	new_entry := shader_build_entry(wgsl_source)
-	wgpu.DevicePopErrorScope(r.device, {
-		mode = .AllowProcessEvents,
-		callback = proc "c" (
-			status: wgpu.PopErrorScopeStatus,
-			type: wgpu.ErrorType,
-			message: string,
-			userdata1, userdata2: rawptr,
-		) {
-			capture := (^Error_Capture)(userdata1)
-			capture.fired = true
-			if status == .Success && type != .NoError {
-				capture.has_error = true
-				context = renderer.ctx
-				fmt.eprintfln("[shader] reload failed: %s", message)
-			}
-		},
-		userdata1 = &capture,
-	})
-	if !capture.fired {
-		wgpu.InstanceProcessEvents(r.instance)
-	}
-
-	if capture.has_error {
+	new_entry, built := shader_build_entry_checked(wgsl_source)
+	if !built {
 		shader_release_entry(&new_entry)
 		return false
 	}
@@ -277,7 +367,10 @@ renderer_reload_shader :: proc(handle: core.Shader_Handle, wgsl_source: string) 
 	// Carry over uniform values by name where the field is still compatible.
 	for name, new_uniform in new_entry.uniforms {
 		old_uniform, found := old.uniforms[name]
-		if found && old_uniform.type == new_uniform.type && old_uniform.size == new_uniform.size {
+		if found &&
+		   old_uniform.type == new_uniform.type &&
+		   old_uniform.size == new_uniform.size &&
+		   old_uniform.stride == new_uniform.stride {
 			copy(
 				new_entry.uniform_data[new_uniform.offset:][:new_uniform.size],
 				old.uniform_data[old_uniform.offset:][:old_uniform.size],
@@ -359,7 +452,10 @@ renderer_set_shader_texture :: proc(
 
 	slot, slot_ok := &entry.textures[name]
 	if !slot_ok {
-		fmt.eprintf("[shader] unknown texture binding: %s\n", name)
+		// See renderer_set_shader_uniform: stay quiet for failed shaders.
+		if entry.pipelines[.Alpha] != nil {
+			fmt.eprintf("[shader] unknown texture binding: %s\n", name)
+		}
 		return
 	}
 
@@ -393,22 +489,20 @@ renderer_set_shader_uniform :: proc(handle: core.Shader_Handle, name: string, va
 	uniform: Shader_Uniform
 	uniform, ok = entry.uniforms[name]
 	if !ok {
-		fmt.eprintf("[shader] unknown uniform: %s\n", name)
+		// A shader that failed to compile may have incomplete metadata; its
+		// compile error was already logged, so don't add per-frame noise.
+		if entry.pipelines[.Alpha] != nil {
+			fmt.eprintf("[shader] unknown uniform: %s\n", name)
+		}
 		return
 	}
 
 	dst := entry.uniform_data[uniform.offset:][:uniform.size]
 
-	// Copy the value bytes into the staging buffer
-	src_ptr := value.data
+	// Bytes per value (per element for arrays) in the source data
 	src_size := 0
-
-	#partial switch uniform.type {
-	case .F32:
-		src_size = 4
-	case .I32:
-		src_size = 4
-	case .U32:
+	switch uniform.type {
+	case .F32, .I32, .U32:
 		src_size = 4
 	case .Vec2F32:
 		src_size = 8
@@ -420,9 +514,42 @@ renderer_set_shader_uniform :: proc(handle: core.Shader_Handle, name: string, va
 		src_size = 64
 	}
 
-	if src_size > 0 && src_size <= uniform.size {
-		src_bytes := ([^]u8)(src_ptr)[:src_size]
-		copy(dst, src_bytes)
+	if uniform.count == 0 {
+		// Copy the value bytes into the staging buffer
+		if src_size <= uniform.size {
+			copy(dst, ([^]u8)(value.data)[:src_size])
+		}
+	} else {
+		// Array uniform: accept a fixed array, slice or dynamic array and copy
+		// each element into its WGSL stride slot (e.g. vec3 elements pad to 16).
+		src_data: rawptr
+		src_len, src_stride: int
+		#partial switch info in runtime.type_info_base(type_info_of(value.id)).variant {
+		case runtime.Type_Info_Array:
+			src_data, src_len, src_stride = value.data, info.count, info.elem_size
+		case runtime.Type_Info_Slice:
+			raw := (^runtime.Raw_Slice)(value.data)
+			src_data, src_len, src_stride = raw.data, raw.len, info.elem_size
+		case runtime.Type_Info_Dynamic_Array:
+			raw := (^runtime.Raw_Dynamic_Array)(value.data)
+			src_data, src_len, src_stride = raw.data, raw.len, info.elem_size
+		case:
+			fmt.eprintfln("[shader] uniform %s is an array — pass an array or slice", name)
+			return
+		}
+		if src_stride < src_size {
+			fmt.eprintfln(
+				"[shader] uniform %s: element size %d is smaller than the shader's %d",
+				name,
+				src_stride,
+				src_size,
+			)
+			return
+		}
+		src := ([^]u8)(src_data)
+		for i in 0 ..< min(src_len, uniform.count) {
+			copy(dst[i * uniform.stride:][:src_size], src[i * src_stride:][:src_size])
+		}
 	}
 
 	entry.uniform_dirty = true
@@ -443,6 +570,15 @@ renderer_reset_shader :: proc() {
 	if hm.is_valid(&r.shaders, r.batch.active_shader) {
 		renderer_flush()
 		r.batch.active_shader = {}
+	}
+}
+
+@(private = "package")
+renderer_set_blend_mode :: proc(mode: core.Blend_Mode) {
+	r := &renderer
+	if r.batch.blend_mode != mode {
+		renderer_flush()
+		r.batch.blend_mode = mode
 	}
 }
 

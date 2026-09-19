@@ -85,8 +85,10 @@ Shader_Uniform_Type :: enum {
 @(private = "package")
 Shader_Uniform :: struct {
 	offset: int,
-	size:   int,
-	type:   Shader_Uniform_Type,
+	size:   int, // total byte size (count * stride for arrays)
+	type:   Shader_Uniform_Type, // element type for arrays
+	count:  int, // array element count, 0 for non-arrays
+	stride: int, // byte distance between array elements
 }
 
 // A group-1 texture binding slot within a custom shader.
@@ -104,8 +106,11 @@ Shader_Entry :: struct {
 	handle:            core.Shader_Handle,
 
 	// WGPU resources
+	// One pipeline per blend mode, created on first use. pipelines[.Alpha]
+	// is built at load time and is nil when the shader failed to compile —
+	// draws then fall back to the default pipeline.
 	module:            wgpu.ShaderModule,
-	pipeline:          wgpu.RenderPipeline,
+	pipelines:         [core.Blend_Mode]wgpu.RenderPipeline,
 	pipeline_layout:   wgpu.PipelineLayout,
 	bind_group_layout: wgpu.BindGroupLayout,
 	bind_group:        wgpu.BindGroup,
@@ -152,6 +157,7 @@ Batch_State :: struct {
 	texture_view:  wgpu.TextureView, // currently bound texture for batching
 	bind_group:    wgpu.BindGroup, // current projection+sampler+texture bind group
 	active_shader: core.Shader_Handle, // zero-value = default pipeline
+	blend_mode:    core.Blend_Mode,
 }
 
 @(private = "package")
@@ -175,7 +181,7 @@ Renderer :: struct {
 	// Pipeline
 	shader_module:        wgpu.ShaderModule,
 	pipeline_layout:      wgpu.PipelineLayout,
-	pipeline:             wgpu.RenderPipeline,
+	pipelines:            [core.Blend_Mode]wgpu.RenderPipeline, // one per blend mode
 
 	// Bind group for projection + sampler + texture
 	bind_group_layout:    wgpu.BindGroupLayout,
@@ -259,6 +265,7 @@ backend :: proc() -> core.Render_Backend {
 		set_shader = renderer_set_shader,
 		reset_shader = renderer_reset_shader,
 		destroy_shader = renderer_destroy_shader,
+		set_blend_mode = renderer_set_blend_mode,
 		create_render_texture = renderer_create_render_texture,
 		set_render_target = renderer_set_render_target,
 		get_gpu_device = renderer_get_gpu_device,
@@ -448,14 +455,17 @@ renderer_on_device_ready :: proc() {
 		&{bindGroupLayoutCount = 1, bindGroupLayouts = &r.bind_group_layout},
 	)
 
-	// Create render pipeline
-	r.pipeline = create_render_pipeline(
-		r.device,
-		r.pipeline_layout,
-		r.shader_module,
-		"vs_main",
-		"fs_main",
-	)
+	// Create a render pipeline for each blend mode
+	for mode in core.Blend_Mode {
+		r.pipelines[mode] = create_render_pipeline(
+			r.device,
+			r.pipeline_layout,
+			r.shader_module,
+			"vs_main",
+			"fs_main",
+			mode,
+		)
+	}
 
 	// Create the 1x1 white texture for solid color drawing
 	white_pixels := [4]u8{255, 255, 255, 255}
@@ -551,7 +561,9 @@ renderer_shutdown :: proc() {
 	if r.sampler != nil {wgpu.SamplerRelease(r.sampler)}
 	if r.batch.bind_group != nil {wgpu.BindGroupRelease(r.batch.bind_group)}
 	if r.bind_group_layout != nil {wgpu.BindGroupLayoutRelease(r.bind_group_layout)}
-	if r.pipeline != nil {wgpu.RenderPipelineRelease(r.pipeline)}
+	for pipeline in r.pipelines {
+		if pipeline != nil {wgpu.RenderPipelineRelease(pipeline)}
+	}
 	if r.pipeline_layout != nil {wgpu.PipelineLayoutRelease(r.pipeline_layout)}
 	if r.shader_module != nil {wgpu.ShaderModuleRelease(r.shader_module)}
 	if r.queue != nil {wgpu.QueueRelease(r.queue)}
@@ -672,8 +684,37 @@ renderer_set_pre_present_callback :: proc(callback: proc(pass: rawptr, width, he
 // UTILITIES //
 //-----------//
 
-// Create a render pipeline with the standard vertex layout and alpha-blended color target.
-// Used for both the default pipeline and custom shader pipelines.
+// Blend state for each engine blend mode.
+@(private = "file")
+blend_state :: proc(mode: core.Blend_Mode) -> wgpu.BlendState {
+	component :: proc(src, dst: wgpu.BlendFactor) -> wgpu.BlendComponent {
+		return {srcFactor = src, dstFactor = dst, operation = .Add}
+	}
+	switch mode {
+	case .Alpha:
+		return {
+			color = component(.SrcAlpha, .OneMinusSrcAlpha),
+			alpha = component(.SrcAlpha, .OneMinusSrcAlpha),
+		}
+	case .Additive:
+		return {color = component(.SrcAlpha, .One), alpha = component(.SrcAlpha, .One)}
+	case .Multiply:
+		return {
+			color = component(.Dst, .OneMinusSrcAlpha),
+			alpha = component(.DstAlpha, .OneMinusSrcAlpha),
+		}
+	case .Premultiplied_Alpha:
+		return {
+			color = component(.One, .OneMinusSrcAlpha),
+			alpha = component(.One, .OneMinusSrcAlpha),
+		}
+	}
+	return {}
+}
+
+// Create a render pipeline with the standard vertex layout and the color
+// target blended according to mode. Used for both the default pipelines and
+// custom shader pipelines.
 @(private = "package")
 create_render_pipeline :: proc(
 	device: wgpu.Device,
@@ -681,7 +722,9 @@ create_render_pipeline :: proc(
 	module: wgpu.ShaderModule,
 	vertex_entry: string,
 	fragment_entry: string,
+	mode: core.Blend_Mode,
 ) -> wgpu.RenderPipeline {
+	blend := blend_state(mode)
 	return wgpu.DeviceCreateRenderPipeline(
 		device,
 		&{
@@ -712,18 +755,7 @@ create_render_pipeline :: proc(
 				targetCount = 1,
 				targets = &wgpu.ColorTargetState {
 					format = .BGRA8Unorm,
-					blend = &{
-						alpha = {
-							srcFactor = .SrcAlpha,
-							dstFactor = .OneMinusSrcAlpha,
-							operation = .Add,
-						},
-						color = {
-							srcFactor = .SrcAlpha,
-							dstFactor = .OneMinusSrcAlpha,
-							operation = .Add,
-						},
-					},
+					blend = &blend,
 					writeMask = wgpu.ColorWriteMaskFlags_All,
 				},
 			},
