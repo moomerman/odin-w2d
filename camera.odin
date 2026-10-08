@@ -66,8 +66,14 @@ camera_world_matrix :: proc(c: Camera) -> matrix[4, 4]f32 {
 // Called when the camera changes or after a window resize.
 @(private = "package")
 upload_view_projection :: proc() {
-	w, h := ctx.window.get_window_size()
-	projection := linalg.matrix_ortho3d_f32(0, f32(w), f32(h), 0, -1, 1)
+	w, h: f32
+	if size, ok := ctx.target_size.?; ok {
+		w, h = f32(size.x), f32(size.y)
+	} else {
+		ww, wh := ctx.window.get_window_size()
+		w, h = f32(ww), f32(wh)
+	}
+	projection := linalg.matrix_ortho3d_f32(0, w, h, 0, -1, 1)
 
 	vp: matrix[4, 4]f32
 	if c, ok := ctx.camera.?; ok {

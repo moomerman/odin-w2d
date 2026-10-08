@@ -73,6 +73,15 @@ Render_Backend :: struct {
 		color: Color,
 	),
 
+	// Push a quad with explicit positions and one colour per vertex
+	// (gradients, soft edges). Colours are interpolated across the quad.
+	push_quad_colors:         proc(
+		positions: [4]Vec2,
+		src_uv: [4][2]f32,
+		tex: Texture_Handle,
+		colors: [4]Color,
+	),
+
 	// Create a texture from raw RGBA8 pixel data. Returns an opaque handle.
 	create_texture:           proc(data: []u8, width, height: int) -> Texture_Handle,
 

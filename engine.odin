@@ -28,6 +28,9 @@ Context :: struct {
 
 	// Camera
 	camera:          Maybe(Camera),
+
+	// Size of the active render texture, or nil when drawing to the window.
+	target_size:     Maybe([2]int),
 }
 
 @(private = "package")

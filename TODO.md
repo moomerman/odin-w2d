@@ -19,6 +19,32 @@ on draw calls, scissor rect) have been removed — see `API.md` for what shipped
   framework opinions, not library features. A "juice" example showing screen
   shake via camera offset would cover the need.
 
+## Learned from The Bench (Oct 2026)
+
+Shipped on the `transform-stack-shapes` branch: transform stack, shape
+primitives, per-vertex colour quads, bind-group cache keyed by (texture,
+projection slot), `get_font_metrics`, camera honoured inside render
+textures. Still open from that project:
+
+- **Screenshot readback.** `save_screenshot(path)` / `read_pixels()` from the
+  swapchain or a render texture (buffer copy + async map). With a way to
+  inject input events this gives scripted visual regression tests; verifying
+  the bench meant `screencapture` + window-bounds cropping + a Swift CGEvent
+  click tool.
+- **Text layout.** Letter spacing (HUD labels), word-wrapped draw/measure,
+  and baseline-positioned drawing built on `get_font_metrics`. Variable
+  fonts render only their default instance — a weight parameter or a
+  documented "ship static instances" rule.
+- **Soft shadows / SDF shapes.** An SDF rounded-rect shader would give
+  anti-aliased edges and blurred drop shadows directly; today a shadow is a
+  baked 9-slice texture.
+- **Scissor in camera space.** `set_scissor_rect` takes window pixels; with
+  a camera (letterboxing) callers convert through `world_to_screen` by hand.
+- **Per-frame limits in API.md.** `MAX_PROJECTION_SLOTS` (32 camera /
+  render-target changes) and `MAX_BIND_GROUPS_PER_FRAME` (256 distinct
+  texture × projection combinations) are asserts; document them where
+  `set_camera` and textures are described.
+
 ## High priority — blocks whole categories of games
 
 ### 1. Gamepad input — SHIPPED (desktop + web)

@@ -146,6 +146,16 @@ Frame_State :: struct {
 	// Bind groups created this frame — released after submit, not mid-pass.
 	bind_groups:      [MAX_BIND_GROUPS_PER_FRAME]wgpu.BindGroup,
 	bind_group_count: int,
+	// Cache so switching back and forth between the same textures reuses
+	// one bind group per (texture, projection slot) instead of creating a
+	// new one on every switch. Cleared each frame.
+	bind_group_cache: map[Bind_Group_Key]wgpu.BindGroup,
+}
+
+@(private = "package")
+Bind_Group_Key :: struct {
+	view:   wgpu.TextureView,
+	offset: u64, // projection slot byte offset
 }
 
 // Vertex batching state within a frame.
@@ -251,6 +261,7 @@ backend :: proc() -> core.Render_Backend {
 		flush = renderer_flush,
 		push_quad = renderer_push_quad,
 		push_quad_ex = renderer_push_quad_ex,
+		push_quad_colors = renderer_push_quad_colors,
 		create_texture = renderer_create_texture,
 		create_texture_empty = renderer_create_texture_empty,
 		update_texture = renderer_update_texture,
@@ -560,6 +571,7 @@ renderer_shutdown :: proc() {
 	if r.projection_buffer != nil {wgpu.BufferRelease(r.projection_buffer)}
 	if r.sampler != nil {wgpu.SamplerRelease(r.sampler)}
 	if r.batch.bind_group != nil {wgpu.BindGroupRelease(r.batch.bind_group)}
+	delete(r.frame.bind_group_cache)
 	if r.bind_group_layout != nil {wgpu.BindGroupLayoutRelease(r.bind_group_layout)}
 	for pipeline in r.pipelines {
 		if pipeline != nil {wgpu.RenderPipelineRelease(pipeline)}
@@ -619,7 +631,10 @@ renderer_set_view_projection :: proc(m: matrix[4, 4]f32) {
 	if !r.initialized {
 		return
 	}
-	assert(r.projection_slot < MAX_PROJECTION_SLOTS, "Too many camera changes in one frame")
+	assert(
+		r.projection_slot < MAX_PROJECTION_SLOTS,
+		"Too many camera changes in one frame (MAX_PROJECTION_SLOTS). Use push_transform for per-object transforms.",
+	)
 	offset := u64(r.projection_slot) * PROJECTION_SLOT_STRIDE
 	m := m
 	wgpu.QueueWriteBuffer(r.queue, r.projection_buffer, offset, &m, size_of(m))

@@ -38,7 +38,8 @@ odin run tools/build_web -- examples/hello --serve # Web + dev server
 
 ## Features
 
-- **Drawing** — rectangles, lines, textures (PNG/BMP/TGA), sub-region blitting, tinting
+- **Drawing** — rectangles, lines, circles, rounded rects, ellipses, polygons, polylines, Béziers, arcs, gradients, textures (PNG/BMP/TGA), sub-region blitting, tinting
+- **Transforms** — a push/pop transform stack applied on the CPU (no flush), composing with the camera; text follows too
 - **Text** — TTF font loading via fontstash, measurement, outlined text, default embedded font
 - **Input** — keyboard (went down/up/held), mouse (position, delta, buttons), system and custom cursors
 - **Audio** — load/play/pause/stop, volume/pan/pitch, buses, spatial audio, looping
@@ -67,6 +68,9 @@ present()
 draw_rect(rect, color)
 draw_rect_outline(rect, thickness, color)
 draw_line(from, to, thickness, color)
+draw_rounded_rect(rect, radius, color)        // + outline, ellipse, polygon, polyline, bezier, arc
+draw_rect_gradient_v(rect, top, bottom)       // + _h, draw_quad, draw_circle_gradient
+push_transform(translate, rotation?, scale?, origin?) / pop_transform()
 draw_texture(texture, pos, tint?)
 draw_texture_rect(texture, src, dst, tint?)
 load_texture(bytes, width?, height?) -> Texture
@@ -84,6 +88,7 @@ draw_text(text, pos, size, color?)
 draw_text_ex(font, text, pos, size, color?)
 draw_text_outlined(text, pos, size, color, outline_color, outline_size)
 measure_text(text, size) -> Vec2
+get_font_metrics(font, size) -> (ascent, descent, line_height)
 ```
 
 ### Input

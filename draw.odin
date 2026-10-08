@@ -8,12 +8,13 @@ import _ "core:image/tga"
 import "core:math"
 
 // Full UV rect for the 1x1 white texture — used by all solid-color primitives.
-@(private = "file")
+@(private = "package")
 WHITE_UV :: [4][2]f32{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
 
 // Clear the screen with a solid color. Call once at the start of each frame's drawing.
 clear :: proc(color: Color) {
 	ctx.renderer.begin_frame(color)
+	transform_reset()
 	// Re-apply camera view_projection in case the projection was reset by a resize
 	// (e.g. surface lost during begin_frame). This is a cheap 64-byte buffer write.
 	if ctx.camera != nil {
@@ -29,7 +30,7 @@ present :: proc() {
 // Draw a solid-colored rectangle.
 draw_rect :: proc(r: Rect, color: Color) {
 	white := ctx.renderer.get_white_texture()
-	ctx.renderer.push_quad(r, WHITE_UV, white, color)
+	emit_quad(r, WHITE_UV, white, color)
 }
 
 // Draw the outline of a rectangle with a given thickness.
@@ -67,13 +68,13 @@ draw_line :: proc(from: Vec2, to: Vec2, thickness: f32, color: Color) {
 	p3 := Vec2{from.x - nx, from.y - ny}
 
 	white := ctx.renderer.get_white_texture()
-	ctx.renderer.push_quad_ex({p0, p1, p2, p3}, WHITE_UV, white, color)
+	emit_quad_ex({p0, p1, p2, p3}, WHITE_UV, white, color)
 }
 
 // Draw a texture at the given position with an optional tint.
 draw_texture :: proc(tex: Texture, pos: Vec2, tint: Color = WHITE) {
 	dst := Rect{pos.x, pos.y, f32(tex.width), f32(tex.height)}
-	ctx.renderer.push_quad(dst, WHITE_UV, tex.handle, tint)
+	emit_quad(dst, WHITE_UV, tex.handle, tint)
 }
 
 // Draw a sub-region of a texture into a destination rectangle with an optional tint.
@@ -86,7 +87,7 @@ draw_texture_rect :: proc(tex: Texture, src: Rect, dst: Rect, tint: Color = WHIT
 	u1 := (src.x + src.w) / tw
 	v1 := (src.y + src.h) / th
 	uv := [4][2]f32{{u0, v0}, {u1, v0}, {u1, v1}, {u0, v1}}
-	ctx.renderer.push_quad(dst, uv, tex.handle, tint)
+	emit_quad(dst, uv, tex.handle, tint)
 }
 
 // Draw a rectangle with a custom origin and rotation.
@@ -111,7 +112,7 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rotation: f32, color: Color) {
 		positions[i] = rotate_vec2(corners[i], rotation) + center
 	}
 
-	ctx.renderer.push_quad_ex(positions, WHITE_UV, white, color)
+	emit_quad_ex(positions, WHITE_UV, white, color)
 }
 
 // Draw a texture from `src` into `dst`, rotated around `origin` by `rotation` radians.
@@ -145,7 +146,7 @@ draw_texture_ex :: proc(
 		positions[i] = rotate_vec2(corners[i], rotation) + center
 	}
 
-	ctx.renderer.push_quad_ex(positions, uv, tex.handle, tint)
+	emit_quad_ex(positions, uv, tex.handle, tint)
 }
 
 // Draw a filled circle.
@@ -161,7 +162,7 @@ draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments: int = 16)
 		p2 := Vec2{center.x + math.cos(a1) * radius, center.y + math.sin(a1) * radius}
 
 		// Degenerate quad: 4th vertex = 3rd to form a single triangle.
-		ctx.renderer.push_quad_ex({center, p1, p2, p2}, WHITE_UV, white, color)
+		emit_quad_ex({center, p1, p2, p2}, WHITE_UV, white, color)
 	}
 }
 
@@ -186,7 +187,7 @@ draw_circle_outline :: proc(
 		c1 := math.cos(a1)
 		s1 := math.sin(a1)
 
-		ctx.renderer.push_quad_ex(
+		emit_quad_ex(
 			{
 				{center.x + c0 * outer, center.y + s0 * outer},
 				{center.x + c1 * outer, center.y + s1 * outer},
@@ -200,16 +201,37 @@ draw_circle_outline :: proc(
 	}
 }
 
+// Draw a convex quad with one colour per vertex (top-left, top-right,
+// bottom-right, bottom-left order). Colours interpolate across the quad.
+draw_quad :: proc(positions: [4]Vec2, colors: [4]Color) {
+	white := ctx.renderer.get_white_texture()
+	emit_quad_colors(positions, WHITE_UV, white, colors)
+}
+
+// Rectangle with a different colour at each corner (top-left, top-right,
+// bottom-right, bottom-left).
+draw_rect_gradient :: proc(r: Rect, top_left, top_right, bottom_right, bottom_left: Color) {
+	draw_quad(
+		{{r.x, r.y}, {r.x + r.w, r.y}, {r.x + r.w, r.y + r.h}, {r.x, r.y + r.h}},
+		{top_left, top_right, bottom_right, bottom_left},
+	)
+}
+
+// Vertical gradient: `top` at the top edge fading to `bottom`.
+draw_rect_gradient_v :: proc(r: Rect, top, bottom: Color) {
+	draw_rect_gradient(r, top, top, bottom, bottom)
+}
+
+// Horizontal gradient: `left` at the left edge fading to `right`.
+draw_rect_gradient_h :: proc(r: Rect, left, right: Color) {
+	draw_rect_gradient(r, left, right, right, left)
+}
+
 // Draw a filled triangle.
 draw_triangle :: proc(vertices: [3]Vec2, color: Color) {
 	white := ctx.renderer.get_white_texture()
 	// Degenerate quad: 4th vertex = 3rd to form a single triangle.
-	ctx.renderer.push_quad_ex(
-		{vertices[0], vertices[1], vertices[2], vertices[2]},
-		WHITE_UV,
-		white,
-		color,
-	)
+	emit_quad_ex({vertices[0], vertices[1], vertices[2], vertices[2]}, WHITE_UV, white, color)
 }
 
 @(private = "file")

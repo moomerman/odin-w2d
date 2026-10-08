@@ -130,7 +130,7 @@ draw_text_ex :: proc(font: Font, text: string, pos: Vec2, size: f32, color: Colo
 			h = quad.y1 - quad.y0,
 		}
 
-		ctx.renderer.push_quad(dst, uv, fd.atlas.handle, color)
+		emit_quad(dst, uv, fd.atlas.handle, color)
 	}
 }
 
@@ -197,6 +197,20 @@ measure_text_ex :: proc(font: Font, text: string, size: f32) -> Vec2 {
 	_, _, line_height := fontstash.VerticalMetrics(fs)
 
 	return {advance, line_height}
+}
+
+// Vertical metrics of a font at a given size, in pixels. draw_text places
+// the TOP of the line box at pos.y, so to put text on a baseline at y use
+// pos.y = y - ascent. descent is negative (below the baseline).
+get_font_metrics :: proc(font: Font, size: f32) -> (ascent, descent, line_height: f32) {
+	if int(font) <= 0 || int(font) >= len(text_state.fonts) {
+		return
+	}
+	fd := &text_state.fonts[int(font)]
+	fs := &text_state.fs
+	fontstash.SetFont(fs, fd.fs_font)
+	fontstash.SetSize(fs, size)
+	return fontstash.VerticalMetrics(fs)
 }
 
 // Sync any dirty atlas regions to the GPU texture.

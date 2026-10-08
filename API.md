@@ -199,10 +199,59 @@ draw_line :: proc(from: Vec2, to: Vec2, thickness: f32, color: Color)
 draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments: int = 16)
 draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Color, segments: int = 16)
 draw_triangle :: proc(vertices: [3]Vec2, color: Color)
+// Per-vertex colours (top-left, top-right, bottom-right, bottom-left).
+draw_quad :: proc(positions: [4]Vec2, colors: [4]Color)
+draw_rect_gradient :: proc(r: Rect, top_left, top_right, bottom_right, bottom_left: Color)
+draw_rect_gradient_v :: proc(r: Rect, top, bottom: Color)
+draw_rect_gradient_h :: proc(r: Rect, left, right: Color)
 draw_texture :: proc(tex: Texture, pos: Vec2, tint: Color = WHITE)
 draw_texture_rect :: proc(tex: Texture, src: Rect, dst: Rect, tint: Color = WHITE)
 draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotation: f32, tint: Color = WHITE)
 draw_stats :: proc()
+```
+
+## Shapes
+
+Vector shapes built from the quad batcher. They respect the transform
+stack and the camera like every other draw call.
+
+```odin
+draw_rounded_rect :: proc(r: Rect, radius: f32, color: Color)
+draw_rounded_rect_outline :: proc(r: Rect, radius: f32, thickness: f32, color: Color)
+draw_ellipse :: proc(center: Vec2, rx, ry: f32, color: Color, segments: int = 24)
+draw_ellipse_outline :: proc(center: Vec2, rx, ry: f32, thickness: f32, color: Color, segments: int = 32)
+draw_polygon :: proc(points: []Vec2, color: Color)  // convex, fan from points[0]
+draw_polyline :: proc(points: []Vec2, thickness: f32, color: Color, closed: bool = false)  // round joins and caps
+draw_bezier :: proc(p0, p1, p2, p3: Vec2, thickness: f32, color: Color, segments: int = 24)  // cubic
+bezier_point :: proc(p0, p1, p2, p3: Vec2, t: f32) -> Vec2
+draw_arc :: proc(center: Vec2, radius: f32, start_angle, end_angle: f32, thickness: f32, color: Color, segments: int = 16)
+// Radial gradient from per-vertex colour: glows and round shadows with no texture.
+draw_circle_gradient :: proc(center: Vec2, radius: f32, center_color, edge_color: Color, segments: int = 32)
+```
+
+## Transforms
+
+A CPU-side affine transform stack applied to every vertex the engine emits
+(rects, shapes, textures and text). It composes with the camera (transform
+first, then camera), costs no flush and no projection slot, and is reset by
+`clear()` each frame. Use it for per-object placement; keep `set_camera` for
+the view.
+
+```odin
+Transform :: struct { a, b, c, d, tx, ty: f32 }  // x' = a·x + c·y + tx, y' = b·x + d·y + ty
+IDENTITY_TRANSFORM :: Transform{1, 0, 0, 1, 0, 0}
+
+// Local `origin` lands on `translate`, rotated and scaled about it (draw_rect_ex's convention).
+push_transform :: proc(translate: Vec2, rotation: f32 = 0, scale: Vec2 = {1, 1}, origin: Vec2 = {0, 0})
+push_transform_ex :: proc(t: Transform)   // composed with the current transform
+pop_transform :: proc()
+get_transform :: proc() -> Transform       // the combined current transform
+transform_apply :: proc(p: Vec2) -> Vec2   // local → screen (pre-camera)
+
+transform_make :: proc(translate: Vec2, rotation: f32 = 0, scale: Vec2 = {1, 1}, origin: Vec2 = {0, 0}) -> Transform
+transform_mul :: proc(outer, inner: Transform) -> Transform  // inner first, then outer
+transform_point :: proc(t: Transform, p: Vec2) -> Vec2
+transform_inverse :: proc(t: Transform) -> Transform        // e.g. mouse → local space
 ```
 
 ## Textures
@@ -214,6 +263,10 @@ destroy_texture :: proc(tex: ^Texture)
 ```
 
 ## Render Textures
+
+The active camera applies inside a render texture too, with the texture's
+size as the viewport, so a world can be baked with the same camera it is
+later drawn with. `set_camera(nil)` first for plain pixel coordinates.
 
 ```odin
 create_render_texture :: proc(width: int, height: int) -> Render_Texture
@@ -233,7 +286,13 @@ draw_text_outlined :: proc(text: string, pos: Vec2, size: f32, color: Color = WH
 draw_text_outlined_ex :: proc(font: Font, text: string, pos: Vec2, size: f32, color: Color = WHITE, outline_color: Color = BLACK, outline_size: f32 = 1)
 measure_text :: proc(text: string, size: f32) -> Vec2
 measure_text_ex :: proc(font: Font, text: string, size: f32) -> Vec2
+// draw_text places the TOP of the line box at pos.y; for a baseline at y
+// use pos.y = y - ascent. descent is negative.
+get_font_metrics :: proc(font: Font, size: f32) -> (ascent, descent, line_height: f32)
 ```
+
+Variable fonts (e.g. `Oxanium[wght].ttf`) render at their default instance;
+there is no weight selection. Ship static instances for other weights.
 
 ## Shaders
 

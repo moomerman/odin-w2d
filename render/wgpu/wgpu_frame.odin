@@ -20,6 +20,7 @@ renderer_begin_frame :: proc(color: core.Color) -> bool {
 	r.batch.texture_view = nil
 	r.batch.bind_group = nil
 	r.frame.bind_group_count = 0
+	clear(&r.frame.bind_group_cache)
 	r.batch.active_shader = {}
 	r.batch.blend_mode = .Alpha
 	r.projection_slot = 0
@@ -335,6 +336,23 @@ renderer_push_quad_ex :: proc(
 	push_vertex(r, positions[3].x, positions[3].y, src_uv[3][0], src_uv[3][1], cr, cg, cb, ca)
 }
 
+// Push a quad with explicit positions and a colour per vertex.
+@(private = "package")
+renderer_push_quad_colors :: proc(
+	positions: [4]core.Vec2,
+	src_uv: [4][2]f32,
+	tex_handle: core.Texture_Handle,
+	colors: [4]core.Color,
+) {
+	r := prepare_quad(tex_handle)
+	if r == nil {return}
+
+	for i in 0 ..< 4 {
+		cr, cg, cb, ca := color_to_f32(colors[i])
+		push_vertex(r, positions[i].x, positions[i].y, src_uv[i][0], src_uv[i][1], cr, cg, cb, ca)
+	}
+}
+
 // Shared setup for push_quad and push_quad_ex: check frame active, look up texture,
 // flush on texture change or batch full. Returns the renderer pointer, or nil if
 // the quad should be skipped.
@@ -388,6 +406,15 @@ push_vertex :: proc(r: ^Renderer, px, py, u, v, cr, cg, cb, ca: f32) {
 bind_texture :: proc(tex_view: wgpu.TextureView) {
 	r := &renderer
 
+	key := Bind_Group_Key {
+		view   = tex_view,
+		offset = r.projection_offset,
+	}
+	if cached, found := r.frame.bind_group_cache[key]; found {
+		r.batch.bind_group = cached
+		return
+	}
+
 	r.batch.bind_group = wgpu.DeviceCreateBindGroup(
 		r.device,
 		&{
@@ -408,13 +435,14 @@ bind_texture :: proc(tex_view: wgpu.TextureView) {
 		},
 	)
 
-	// Track for deferred release after frame submit.
+	// Track for deferred release after frame submit, and cache for reuse.
 	assert(
 		r.frame.bind_group_count < MAX_BIND_GROUPS_PER_FRAME,
-		"Too many texture switches in one frame",
+		"Too many distinct texture/camera combinations in one frame (MAX_BIND_GROUPS_PER_FRAME)",
 	)
 	r.frame.bind_groups[r.frame.bind_group_count] = r.batch.bind_group
 	r.frame.bind_group_count += 1
+	r.frame.bind_group_cache[key] = r.batch.bind_group
 }
 
 // Helper to convert Color ([4]u8) to [4]f64 for wgpu clear values.
