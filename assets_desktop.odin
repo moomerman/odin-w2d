@@ -35,18 +35,20 @@ when DEV {
 		Texture,
 		Shader,
 		Audio,
+		Data,
 	}
 
 	@(private = "file")
 	Watched_Asset :: struct {
-		path:    string, // cloned, owned by the watch list
-		kind:    Watched_Kind,
-		mtime:   time.Time,
-		texture: Texture_Handle,
-		shader:  Shader_Handle,
-		audio:   Audio_Source,
-		width:   int, // textures: last-known dimensions
-		height:  int,
+		path:      string, // cloned, owned by the watch list
+		kind:      Watched_Kind,
+		mtime:     time.Time,
+		texture:   Texture_Handle,
+		shader:    Shader_Handle,
+		audio:     Audio_Source,
+		on_change: Asset_Change_Proc, // data files: game callback
+		width:     int, // textures: last-known dimensions
+		height:    int,
 	}
 
 	@(private = "file")
@@ -73,6 +75,12 @@ when DEV {
 	assets_watch_add_audio :: proc(path: string, source: Audio_Source) {
 		entry := watch_find_or_append(path, .Audio)
 		entry.audio = source
+	}
+
+	@(private = "package")
+	assets_watch_add_data :: proc(path: string, on_change: Asset_Change_Proc) {
+		entry := watch_find_or_append(path, .Data)
+		entry.on_change = on_change
 	}
 
 	// Find the watch entry for path+kind, or append a fresh one. Re-loading
@@ -159,6 +167,9 @@ when DEV {
 				} else {
 					fmt.eprintfln("[assets] audio reload failed, keeping previous: %s", entry.path)
 				}
+			case .Data:
+				entry.on_change(entry.path, data)
+				fmt.printfln("[assets] reloaded data: %s", entry.path)
 			}
 			delete(data)
 		}

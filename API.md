@@ -185,6 +185,13 @@ register_assets :: proc(prefix: string, files: []runtime.Load_Directory_File)
 load_texture_from_file :: proc(path: string) -> Texture
 load_shader_from_file :: proc(path: string) -> Shader
 load_font_from_file :: proc(path: string) -> Font
+
+// Raw bytes for data the engine has no loader for (levels, config). The
+// result is always a copy owned by the caller. In dev builds on desktop,
+// `on_change` is called with the new contents whenever the file changes;
+// `data` is only valid during the call.
+Asset_Change_Proc :: #type proc(path: string, data: []u8)
+load_data_from_file :: proc(path: string, on_change: Asset_Change_Proc = nil) -> (data: []u8, ok: bool)
 ```
 
 ## Drawing

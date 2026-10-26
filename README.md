@@ -44,6 +44,7 @@ odin run tools/build_web -- examples/hello --serve # Web + dev server
 - **Input** — keyboard (went down/up/held), mouse (position, delta, buttons), system and custom cursors
 - **Audio** — load/play/pause/stop, volume/pan/pitch, buses, spatial audio, looping
 - **Shaders** — custom WGSL shaders with automatic uniform parsing and hot-swapping
+- **Assets** — compile-time embedded registry; dev builds read from disk and hot-reload textures, shaders, audio and raw data files
 - **Cross-platform** — desktop (SDL3/native Cocoa + wgpu) and web (JS canvas + wgpu + Web Audio)
 - **Stats** — built-in FPS, frame time, draw calls, quad count overlay via `draw_stats()`
 

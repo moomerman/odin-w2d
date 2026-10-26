@@ -18,6 +18,7 @@ package engine
 
 import "base:runtime"
 import "core:fmt"
+import "core:slice"
 import "core:strings"
 
 // True when built with -define:W2D_DEV=true. Enables disk-first asset
@@ -140,6 +141,37 @@ load_font_from_file :: proc(path: string) -> Font {
 		append(&asset_registry.retained_font_data, data)
 	}
 	return font
+}
+
+// Called by the dev-mode watcher with the new contents of a file loaded via
+// load_data_from_file. `data` is only valid for the duration of the call.
+Asset_Change_Proc :: #type proc(path: string, data: []u8)
+
+// Load raw bytes from a registered asset path, or from a file on disk
+// (desktop only). Use this for game data the engine has no loader for:
+// levels, config, dialogue. The returned slice is always a copy owned by the
+// caller; free it with delete. In dev builds on desktop, pass `on_change` to
+// be called with the new contents whenever the file changes on disk.
+load_data_from_file :: proc(
+	path: string,
+	on_change: Asset_Change_Proc = nil,
+) -> (
+	data: []u8,
+	ok: bool,
+) {
+	resolved, owned, found := asset_resolve(path)
+	if !found {
+		return nil, false
+	}
+	when DEV {
+		if on_change != nil {
+			assets_watch_add_data(path, on_change)
+		}
+	}
+	if owned {
+		return resolved, true
+	}
+	return slice.clone(resolved), true
 }
 
 // Free registry bookkeeping. Called internally from engine_shutdown.

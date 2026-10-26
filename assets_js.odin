@@ -31,5 +31,11 @@ assets_watch_add_audio :: proc(path: string, source: Audio_Source) {
 }
 
 @(private = "package")
+assets_watch_add_data :: proc(path: string, on_change: Asset_Change_Proc) {
+	_ = path
+	_ = on_change
+}
+
+@(private = "package")
 assets_watch_shutdown :: proc() {
 }
