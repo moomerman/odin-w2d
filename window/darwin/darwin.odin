@@ -9,7 +9,8 @@ package window_darwin
 import "base:intrinsics"
 import "base:runtime"
 
-import NS "core:sys/darwin/Foundation"
+import ObjC "core:sys/darwin/ObjectiveC"
+import NS "vendor:darwin/AppKit"
 import CA "vendor:darwin/QuartzCore"
 import "vendor:wgpu"
 
@@ -77,24 +78,20 @@ native_init :: proc(width, height: int, title: string, resize_cb: proc()) {
 	screen_height = height
 	odin_ctx = context
 
-	app = NS.Application_sharedApplication()
+	app = NS.Application.sharedApplication()
 	app->setActivationPolicy(.Regular)
 
 	NS.scoped_autoreleasepool()
 
 	// Menu bar with Quit (Cmd+Q)
-	menu_bar := NS.Menu_alloc()->init()
+	menu_bar := NS.Menu.alloc()->init()
 	app->setMainMenu(menu_bar)
 	app_menu_item := menu_bar->addItemWithTitle(NS.AT(""), nil, NS.AT(""))
 
-	app_menu := NS.Menu_alloc()->init()
-	app_menu->addItemWithTitle(
-		NS.AT("Quit"),
-		NS.sel_registerName(cstring("terminate:")),
-		NS.AT("q"),
-	)
+	app_menu := NS.Menu.alloc()->init()
+	app_menu->addItemWithTitle(NS.AT("Quit"), ObjC.sel_registerName("terminate:"), NS.AT("q"))
 	app_menu_item->setSubmenu(app_menu)
-	app->setAppleMenu(app_menu)
+	intrinsics.objc_send(nil, app, "setAppleMenu:", app_menu)
 
 	// Create window
 	rect := NS.Rect {
@@ -102,21 +99,17 @@ native_init :: proc(width, height: int, title: string, resize_cb: proc()) {
 		size   = {NS.Float(width), NS.Float(height)},
 	}
 
-	style :=
-		NS.WindowStyleMaskTitled |
-		NS.WindowStyleMaskClosable |
-		NS.WindowStyleMaskMiniaturizable |
-		NS.WindowStyleMaskResizable
-	window = NS.Window_alloc()->initWithContentRect(rect, style, .Buffered, false)
+	style := NS.WindowStyleMask{.Titled, .Closable, .Miniaturizable, .Resizable}
+	window = NS.Window.alloc()->initWithContentRect(rect, style, .Buffered, false)
 
-	title_str := NS.String_alloc()->initWithOdinString(title)
+	title_str := NS.String.alloc()->initWithOdinString(title)
 	window->setTitle(title_str)
 
 	window->center()
 	window->setAcceptsMouseMovedEvents(true)
 
 	// Create Metal layer for wgpu surface
-	metal_layer = CA.MetalLayer_layer()
+	metal_layer = CA.MetalLayer.layer()
 	view := window->contentView()
 	view->setWantsLayer(true)
 	view->setLayer(metal_layer)
@@ -127,7 +120,7 @@ native_init :: proc(width, height: int, title: string, resize_cb: proc()) {
 	app_delegate := NS.application_delegate_register_and_alloc(NS.ApplicationDelegateTemplate {
 			applicationShouldTerminate = proc(_: ^NS.Application) -> NS.ApplicationTerminateReply {
 				should_quit = true
-				return .TerminateCancel
+				return .Cancel
 			},
 		}, "NativeDarwinApplicationDelegate", odin_ctx)
 	app->setDelegate(app_delegate)
@@ -263,7 +256,7 @@ native_poll_events :: proc() -> bool {
 		case .ScrollWheel:
 			pos := mouse_pos_from_event(event)
 			dx, dy := event->scrollingDelta()
-			is_momentum := event->momentumPhase() != NS.EventPhaseNone
+			is_momentum := event->momentumPhase() != NS.EventPhase_None
 			append(
 				&events,
 				core.Event(
@@ -335,10 +328,10 @@ native_get_events :: proc() -> []core.Event {
 @(private = "file")
 native_set_cursor_visible :: proc(visible: bool) {
 	if visible && cursor_hidden {
-		NS.Cursor_unhide()
+		NS.Cursor.unhide()
 		cursor_hidden = false
 	} else if !visible && !cursor_hidden {
-		NS.Cursor_hide()
+		NS.Cursor.hide()
 		cursor_hidden = true
 	}
 }
@@ -348,17 +341,17 @@ native_set_system_cursor :: proc(cursor: core.System_Cursor) {
 	ns_cursor: ^NS.Cursor
 	switch cursor {
 	case .Default:
-		ns_cursor = NS.Cursor_arrowCursor()
+		ns_cursor = NS.Cursor.arrowCursor()
 	case .Text:
-		ns_cursor = NS.Cursor_IBeamCursor()
+		ns_cursor = NS.Cursor.IBeamCursor()
 	case .Pointer:
-		ns_cursor = NS.Cursor_pointingHandCursor()
+		ns_cursor = NS.Cursor.pointingHandCursor()
 	case .Crosshair:
-		ns_cursor = intrinsics.objc_send(^NS.Cursor, NS.Cursor, "crosshairCursor")
+		ns_cursor = NS.Cursor.crosshairCursor()
 	case .Resize_EW:
-		ns_cursor = intrinsics.objc_send(^NS.Cursor, NS.Cursor, "resizeLeftRightCursor")
+		ns_cursor = NS.Cursor.resizeLeftRightCursor()
 	case .Resize_NS:
-		ns_cursor = intrinsics.objc_send(^NS.Cursor, NS.Cursor, "resizeUpDownCursor")
+		ns_cursor = NS.Cursor.resizeUpDownCursor()
 	case .Resize_NWSE:
 		// Private Apple selector; falls back to arrow if unavailable.
 		ns_cursor = intrinsics.objc_send(
@@ -366,18 +359,18 @@ native_set_system_cursor :: proc(cursor: core.System_Cursor) {
 			NS.Cursor,
 			"_windowResizeNorthWestSouthEastCursor",
 		)
-		if ns_cursor == nil do ns_cursor = NS.Cursor_arrowCursor()
+		if ns_cursor == nil do ns_cursor = NS.Cursor.arrowCursor()
 	case .Resize_NESW:
 		ns_cursor = intrinsics.objc_send(
 			^NS.Cursor,
 			NS.Cursor,
 			"_windowResizeNorthEastSouthWestCursor",
 		)
-		if ns_cursor == nil do ns_cursor = NS.Cursor_arrowCursor()
+		if ns_cursor == nil do ns_cursor = NS.Cursor.arrowCursor()
 	case .Move:
-		ns_cursor = intrinsics.objc_send(^NS.Cursor, NS.Cursor, "openHandCursor")
+		ns_cursor = NS.Cursor.openHandCursor()
 	case .Not_Allowed:
-		ns_cursor = intrinsics.objc_send(^NS.Cursor, NS.Cursor, "operationNotAllowedCursor")
+		ns_cursor = NS.Cursor.operationNotAllowedCursor()
 	}
 	if ns_cursor != nil {
 		ns_cursor->set()
@@ -390,7 +383,7 @@ native_set_custom_cursor :: proc(pixels: []u8, w, h, hot_x, hot_y: int) {
 
 	planes := [?]^u8{raw_data(pixels)}
 
-	rep := NS.BitmapImageRep_alloc()->initWithBitmapDataPlanes(
+	rep := NS.BitmapImageRep.alloc()->initWithBitmapDataPlanes(
 		&planes[0],
 		NS.Integer(w),
 		NS.Integer(h),
@@ -405,10 +398,10 @@ native_set_custom_cursor :: proc(pixels: []u8, w, h, hot_x, hot_y: int) {
 	if rep == nil do return
 	defer rep->release()
 
-	image := NS.Image_alloc()->initWithSize({NS.Float(w), NS.Float(h)})
+	image := NS.Image.alloc()->initWithSize({NS.Float(w), NS.Float(h)})
 	image->addRepresentation((^NS.ImageRep)(rep))
 
-	new_cursor := NS.Cursor_alloc()->initWithImage(image, {NS.Float(hot_x), NS.Float(hot_y)})
+	new_cursor := NS.Cursor.alloc()->initWithImage(image, {NS.Float(hot_x), NS.Float(hot_y)})
 	image->release()
 
 	if new_cursor != nil {
@@ -435,25 +428,16 @@ native_set_window_mode :: proc(mode: core.Window_Mode) {
 
 	switch mode {
 	case .Windowed:
-		style :=
-			NS.WindowStyleMaskTitled |
-			NS.WindowStyleMaskClosable |
-			NS.WindowStyleMaskMiniaturizable |
-			NS.WindowStyleMaskResizable
-		window->setStyleMask(style)
+		window->setStyleMask({.Titled, .Closable, .Miniaturizable, .Resizable})
 	case .Windowed_Fixed:
-		style :=
-			NS.WindowStyleMaskTitled |
-			NS.WindowStyleMaskClosable |
-			NS.WindowStyleMaskMiniaturizable
-		window->setStyleMask(style)
+		window->setStyleMask({.Titled, .Closable, .Miniaturizable})
 	case .Fullscreen:
 		if !is_fullscreen {
 			window->toggleFullScreen(nil)
 		}
 	case .Borderless:
 		screen_frame := window->screen()->frame()
-		window->setStyleMask(NS.WindowStyleMaskBorderless)
+		window->setStyleMask({})
 		window->setFrame(screen_frame, true)
 	}
 

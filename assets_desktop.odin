@@ -201,7 +201,7 @@ when DEV {
 			entry.height = img.height
 		}
 
-		ctx.renderer.reload_texture(entry.texture, img.pixels.buf[:], img.width, img.height)
+		ctx.renderer.reload_texture(entry.texture, img.pixels[:], img.width, img.height)
 		fmt.printfln("[assets] reloaded texture: %s", entry.path)
 	}
 }

@@ -262,7 +262,7 @@ load_texture :: proc(bytes: []u8, width: int = 0, height: int = 0) -> Texture {
 	}
 	defer image.destroy(img)
 
-	handle := ctx.renderer.create_texture(img.pixels.buf[:], img.width, img.height)
+	handle := ctx.renderer.create_texture(img.pixels[:], img.width, img.height)
 	return Texture{handle = handle, width = img.width, height = img.height}
 }
 
