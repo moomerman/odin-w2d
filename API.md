@@ -155,6 +155,7 @@ get_frame_time :: proc() -> f32
 get_time :: proc() -> f64
 get_screen_size :: proc() -> (int, int)
 set_window_mode :: proc(mode: Window_Mode)
+set_vsync :: proc(enabled: bool) // default on; off = loop runs unthrottled, window updated ~60/s
 get_stats :: proc() -> Stats
 get_gpu_device :: proc() -> rawptr
 get_gpu_queue :: proc() -> rawptr
@@ -294,10 +295,15 @@ only: on web every call returns `ok = false` / `false`.
 framebuffer size in physical pixels (not `get_screen_size` on HiDPI). Call
 it inside the frame proc, after drawing and before `present`; drawing may
 continue afterwards. Drawing from `set_pre_present_callback` is not
-included. It returns `ok = false` when the frame was skipped because the
-surface is unavailable: on macOS that is the first frame (window not shown
-yet) and any frame while the window is fully covered, so retry next frame.
-`read_render_texture` works inside a frame or between frames.
+included. When the window is hidden, covered, or (macOS) not yet shown the
+surface has no texture, so the frame is drawn into an offscreen target of
+the same size and nothing is presented; `read_pixels` reads that target,
+so screenshots work from the first frame and with the window covered (the
+loop is held to about 60 frames a second meanwhile). With `set_vsync(false)`
+most frames are offscreen too, and read back the same way. `read_pixels`
+returns `ok = false` only when the frame was skipped for a lost or resized
+surface, so retry next frame. `read_render_texture` works inside a frame
+or between frames.
 
 ```odin
 read_pixels :: proc(allocator := context.allocator) -> (pixels: []u8, width, height: int, ok: bool)

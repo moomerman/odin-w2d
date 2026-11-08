@@ -4,6 +4,7 @@ import "base:runtime"
 import hm "core:container/handle_map"
 import "core:fmt"
 import "core:math/linalg"
+import "core:time"
 import "vendor:wgpu"
 
 import core "../../core"
@@ -142,6 +143,9 @@ Frame_State :: struct {
 	surface_tex:      wgpu.SurfaceTexture,
 	view:             wgpu.TextureView,
 	active:           bool,
+	// The surface was unavailable (occluded) and this frame draws into the
+	// offscreen texture instead; nothing is presented.
+	offscreen:        bool,
 	// Render texture the current pass draws into, or nil for the screen.
 	target:           Maybe(core.Texture_Handle),
 
@@ -246,6 +250,22 @@ Renderer :: struct {
 	// Whether the surface was configured with CopySrc, so read_pixels can
 	// copy the swapchain texture.
 	surface_copy_src:     bool,
+
+	// Present modes the surface supports, for set_vsync; vsync is the
+	// requested state, applied by the next begin_frame.
+	present_modes:        [4]wgpu.PresentMode,
+	present_mode_count:   int,
+	vsync:                bool,
+
+	// Window-sized render target used when a frame is not drawn to the
+	// surface: the window is occluded or (macOS) not yet shown, or vsync
+	// is off and the surface was presented less than a display period ago.
+	// Created on first use, recreated on resize.
+	offscreen_tex:        wgpu.Texture,
+	offscreen_view:       wgpu.TextureView,
+	offscreen_w:          u32,
+	offscreen_h:          u32,
+	last_surface_frame:   time.Tick, // begin of the last frame drawn to the surface
 }
 
 @(private = "package")
@@ -291,6 +311,7 @@ backend :: proc() -> core.Render_Backend {
 		set_view_projection = renderer_set_view_projection,
 		set_scissor_rect = renderer_set_scissor_rect,
 		set_pre_present_callback = renderer_set_pre_present_callback,
+		set_vsync = renderer_set_vsync,
 		read_pixels = renderer_read_pixels,
 		read_texture = renderer_read_texture,
 	}
@@ -306,6 +327,7 @@ renderer_init :: proc(window: ^core.Window_Backend, on_initialized: proc()) {
 	renderer.window = window
 	renderer.on_initialized = on_initialized
 	renderer.next_handle_id = 1
+	renderer.vsync = true
 	renderer.textures = make(map[core.Texture_Handle]Texture_Entry)
 	hm.dynamic_init(&renderer.shaders, context.allocator)
 
@@ -368,6 +390,10 @@ renderer_on_device_ready :: proc() {
 				usage += {.CopySrc}
 				r.surface_copy_src = true
 			}
+			r.present_mode_count = min(int(caps.presentModeCount), len(r.present_modes))
+			for i in 0 ..< r.present_mode_count {
+				r.present_modes[i] = caps.presentModes[i]
+			}
 			wgpu.SurfaceCapabilitiesFreeMembers(caps)
 		}
 	}
@@ -377,7 +403,7 @@ renderer_on_device_ready :: proc() {
 		format      = .BGRA8Unorm,
 		width       = r.width,
 		height      = r.height,
-		presentMode = .Fifo,
+		presentMode = present_mode_for(r.vsync),
 		alphaMode   = .Opaque,
 	}
 	wgpu.SurfaceConfigure(r.surface, &r.config)
@@ -553,6 +579,43 @@ renderer_is_initialized :: proc() -> bool {
 	return renderer.initialized
 }
 
+// Enable or disable vsync. Off picks the first non-blocking present mode
+// the surface offers (Immediate, then Mailbox); when neither is offered
+// (web surfaces only do Fifo) the request has no effect. Applied by the
+// next begin_frame, so it is safe to call at any time, including before
+// the device is ready.
+@(private = "package")
+renderer_set_vsync :: proc(enabled: bool) {
+	renderer.vsync = enabled
+}
+
+// Reconfigure the surface if the requested vsync state changed.
+@(private = "package")
+apply_present_mode :: proc() {
+	r := &renderer
+	mode := present_mode_for(r.vsync)
+	if mode != r.config.presentMode {
+		r.config.presentMode = mode
+		wgpu.SurfaceConfigure(r.surface, &r.config)
+	}
+}
+
+@(private = "file")
+present_mode_for :: proc(vsync: bool) -> wgpu.PresentMode {
+	r := &renderer
+	if vsync {
+		return .Fifo
+	}
+	for want in ([]wgpu.PresentMode{.Immediate, .Mailbox}) {
+		for i in 0 ..< r.present_mode_count {
+			if r.present_modes[i] == want {
+				return want
+			}
+		}
+	}
+	return .Fifo
+}
+
 //----------//
 // SHUTDOWN //
 //----------//
@@ -586,6 +649,7 @@ renderer_shutdown :: proc() {
 	}
 	hm.dynamic_destroy(&r.shaders)
 
+	offscreen_destroy()
 	if r.vertex_buffer != nil {wgpu.BufferRelease(r.vertex_buffer)}
 	if r.index_buffer != nil {wgpu.BufferRelease(r.index_buffer)}
 	if r.projection_buffer != nil {wgpu.BufferRelease(r.projection_buffer)}

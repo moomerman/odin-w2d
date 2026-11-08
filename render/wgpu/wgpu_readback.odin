@@ -33,11 +33,19 @@ renderer_read_pixels :: proc(
 	ok: bool,
 ) {
 	r := &renderer
-	if !r.frame.active || !r.surface_copy_src {
+	if !r.frame.active {
+		return
+	}
+	// An occluded frame draws into the offscreen target, which always has
+	// CopySrc; a surface texture only when the surface allowed it.
+	tex := r.frame.surface_tex.texture
+	if r.frame.offscreen {
+		tex = r.offscreen_tex
+	} else if !r.surface_copy_src {
 		return
 	}
 	return read_frame_texture(
-		r.frame.surface_tex.texture,
+		tex,
 		r.config.format,
 		r.config.width,
 		r.config.height,

@@ -106,6 +106,18 @@ set_window_mode :: proc(mode: Window_Mode) {
 	ctx.window.set_window_mode(mode)
 }
 
+// Enable (the default) or disable vsync. With vsync off the frame loop
+// never waits for the display: frames run as fast as the GPU draws them,
+// into an offscreen target, and the window shows the latest one about 60
+// times a second (acquiring a window frame blocks at the display rate on
+// macOS whatever the present mode, so this is how unthrottled works). For
+// tests and script runs; use get_frame_time for movement either way.
+// Takes effect from the next frame. No effect on web, where the browser
+// paces frames.
+set_vsync :: proc(enabled: bool) {
+	ctx.renderer.set_vsync(enabled)
+}
+
 // Returns rendering statistics for the most recently completed frame.
 get_stats :: proc() -> Stats {
 	return ctx.renderer.get_stats(ctx.frame_time)

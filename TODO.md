@@ -29,10 +29,12 @@ textures. Still open from that project:
 - **Input injection.** Screenshot readback has shipped (`read_pixels`,
   `save_screenshot`); a way to inject input events would complete scripted
   visual regression tests (the bench needed a Swift CGEvent click tool).
-- **Readback while occluded.** A frame whose surface reports occluded (macOS:
-  first frame, or window fully covered) is skipped, so `read_pixels` fails
-  for it. Unattended tests want frames drawn anyway, e.g. into an offscreen
-  target when the surface is unavailable.
+- **Headless mode.** Occluded frames now draw into an offscreen target and
+  `set_vsync(false)` runs unthrottled, so covered windows and fast test runs
+  work. Still missing for CI: a null window backend (no NSWindow, no
+  surface, fixed framebuffer size) and a plain run loop that does not go
+  through the Cocoa application loop; wgpu can create a device without a
+  surface, and GitHub's macOS runners have a GPU.
 - **Text layout.** Letter spacing (HUD labels), word-wrapped draw/measure,
   and baseline-positioned drawing built on `get_font_metrics`. Variable
   fonts render only their default instance — a weight parameter or a

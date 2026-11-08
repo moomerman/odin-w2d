@@ -172,6 +172,10 @@ Render_Backend :: struct {
 	// framebuffer dimensions.
 	set_pre_present_callback: proc(callback: proc(pass: rawptr, width, height: u32)),
 
+	// Enable (default) or disable vsync; off uses a non-blocking present
+	// mode when the surface offers one.
+	set_vsync:                proc(enabled: bool),
+
 	// Read back the screen as drawn so far this frame: flushes pending draws,
 	// copies the surface texture to a buffer and blocks until it is mapped.
 	// Returns tightly packed RGBA8, row 0 at the top, at framebuffer size.

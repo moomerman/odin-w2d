@@ -3,9 +3,15 @@ package renderer_wgpu
 import hm "core:container/handle_map"
 import "core:fmt"
 import "core:math/linalg"
+import "core:time"
 import "vendor:wgpu"
 
 import core "../../core"
+
+// How often the surface is drawn when vsync is off or the window is
+// occluded; the display rate is not known, 60 Hz is the common case.
+@(private = "file")
+SURFACE_FRAME_INTERVAL :: time.Second / 60
 
 // Begin a new frame, clearing the screen with the given color.
 @(private = "package")
@@ -32,27 +38,55 @@ renderer_begin_frame :: proc(color: core.Color) -> bool {
 		texture_memory = r.current_stats.texture_memory,
 	}
 
-	r.frame.surface_tex = wgpu.SurfaceGetCurrentTexture(r.surface)
-	switch r.frame.surface_tex.status {
-	case .SuccessOptimal, .SuccessSuboptimal:
-	// All good.
-	case .Timeout, .Outdated, .Lost:
-		if r.frame.surface_tex.texture != nil {
-			wgpu.TextureRelease(r.frame.surface_tex.texture)
+	apply_present_mode()
+
+	// Acquiring a surface texture blocks until the compositor frees one,
+	// which macOS paces at the display rate whatever the present mode. So
+	// with vsync off the surface is drawn at most once per display period
+	// and the frames between go to the offscreen target: the frame loop
+	// never waits for the display, and the window still shows the latest
+	// picture.
+	r.frame.offscreen = false
+	now := time.tick_now()
+	if !r.vsync && time.tick_diff(r.last_surface_frame, now) < SURFACE_FRAME_INTERVAL {
+		r.frame.offscreen = true
+	} else {
+		r.frame.surface_tex = wgpu.SurfaceGetCurrentTexture(r.surface)
+		switch r.frame.surface_tex.status {
+		case .SuccessOptimal, .SuccessSuboptimal:
+			r.frame.view = wgpu.TextureCreateView(r.frame.surface_tex.texture, nil)
+			r.last_surface_frame = now
+		case .Timeout, .Outdated, .Lost:
+			if r.frame.surface_tex.texture != nil {
+				wgpu.TextureRelease(r.frame.surface_tex.texture)
+			}
+			renderer_resize()
+			return false
+		case .Occluded:
+			// Window hidden, covered, or (macOS) not yet shown: the surface
+			// has no texture for us. Draw offscreen instead so the frame
+			// proc, readback and timing behave as usual, and (vsync on)
+			// hold the loop to the display rate rather than spin.
+			if r.frame.surface_tex.texture != nil {
+				wgpu.TextureRelease(r.frame.surface_tex.texture)
+			}
+			r.frame.offscreen = true
+			if r.vsync {
+				if left := SURFACE_FRAME_INTERVAL - time.tick_diff(r.last_surface_frame, now);
+				   left > 0 {
+					time.sleep(left)
+				}
+				r.last_surface_frame = time.tick_now()
+			}
+		case .Error:
+			fmt.panicf("[renderer/wgpu] get_current_texture status=%v", r.frame.surface_tex.status)
 		}
-		renderer_resize()
-		return false
-	case .Occluded:
-		// Window is occluded/hidden — skip this frame without resizing.
-		if r.frame.surface_tex.texture != nil {
-			wgpu.TextureRelease(r.frame.surface_tex.texture)
-		}
-		return false
-	case .Error:
-		fmt.panicf("[renderer/wgpu] get_current_texture status=%v", r.frame.surface_tex.status)
+	}
+	if r.frame.offscreen {
+		r.frame.surface_tex.texture = nil
+		r.frame.view = offscreen_view()
 	}
 
-	r.frame.view = wgpu.TextureCreateView(r.frame.surface_tex.texture, nil)
 	r.frame.encoder = wgpu.DeviceCreateCommandEncoder(r.device, nil)
 
 	cf := color_to_f64(color)
@@ -273,13 +307,19 @@ renderer_present :: proc() {
 	wgpu.CommandBufferRelease(command_buffer)
 	wgpu.CommandEncoderRelease(r.frame.encoder)
 
-	wgpu.SurfacePresent(r.surface)
+	if !r.frame.offscreen {
+		wgpu.SurfacePresent(r.surface)
+	}
 	when ODIN_ARCH != .wasm32 && ODIN_ARCH != .wasm64p32 {
 		wgpu.DevicePoll(r.device, false, nil)
 	}
 
-	wgpu.TextureViewRelease(r.frame.view)
-	wgpu.TextureRelease(r.frame.surface_tex.texture)
+	// The offscreen view is kept across frames; a surface view is per frame.
+	if !r.frame.offscreen {
+		wgpu.TextureViewRelease(r.frame.view)
+		wgpu.TextureRelease(r.frame.surface_tex.texture)
+	}
+	r.frame.view = nil
 
 	// Release all bind groups created this frame now that the GPU is done with them.
 	for i in 0 ..< r.frame.bind_group_count {
@@ -451,4 +491,51 @@ bind_texture :: proc(tex_view: wgpu.TextureView) {
 @(private = "file")
 color_to_f64 :: proc(c: core.Color) -> [4]f64 {
 	return {f64(c[0]) / 255.0, f64(c[1]) / 255.0, f64(c[2]) / 255.0, f64(c[3]) / 255.0}
+}
+
+//-----------//
+// OFFSCREEN //
+//-----------//
+
+// The offscreen target at the current surface size, created or resized on
+// demand. BGRA8 like the surface so shaders and readback see one format.
+@(private = "package")
+offscreen_view :: proc() -> wgpu.TextureView {
+	r := &renderer
+	if r.offscreen_view != nil &&
+	   r.offscreen_w == r.config.width &&
+	   r.offscreen_h == r.config.height {
+		return r.offscreen_view
+	}
+	offscreen_destroy()
+	r.offscreen_tex = wgpu.DeviceCreateTexture(
+		r.device,
+		&{
+			label = "Offscreen Target",
+			usage = {.RenderAttachment, .CopySrc},
+			dimension = ._2D,
+			size = {r.config.width, r.config.height, 1},
+			format = r.config.format,
+			mipLevelCount = 1,
+			sampleCount = 1,
+		},
+	)
+	r.offscreen_view = wgpu.TextureCreateView(r.offscreen_tex, nil)
+	r.offscreen_w = r.config.width
+	r.offscreen_h = r.config.height
+	return r.offscreen_view
+}
+
+@(private = "package")
+offscreen_destroy :: proc() {
+	r := &renderer
+	if r.offscreen_view != nil {
+		wgpu.TextureViewRelease(r.offscreen_view)
+		r.offscreen_view = nil
+	}
+	if r.offscreen_tex != nil {
+		wgpu.TextureRelease(r.offscreen_tex)
+		r.offscreen_tex = nil
+	}
+	r.offscreen_w, r.offscreen_h = 0, 0
 }

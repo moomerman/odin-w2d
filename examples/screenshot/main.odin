@@ -14,10 +14,10 @@ RT_SIZE :: 8
 RT_FILL :: w.Color{10, 200, 30, 255}
 RT_HALF :: w.Color{250, 120, 5, 255}
 
-// A frame is skipped while the surface is unavailable: on macOS the first
-// frame (window not yet shown) and any frame while the window is fully
-// covered report the surface occluded, and readback then returns ok = false.
-// Try each frame until a screenshot lands, for up to this many seconds.
+// A frame is only skipped while the surface is lost or resizing (an
+// occluded or not-yet-shown window draws offscreen instead), so readback
+// normally succeeds on the first frame. Try each frame until a screenshot
+// lands, for up to this many seconds.
 TIMEOUT :: 5.0
 
 rt: w.Render_Texture
@@ -36,7 +36,7 @@ init :: proc() {
 frame :: proc(dt: f32) {
 	if saved || w.get_time() > TIMEOUT {
 		if !saved {
-			fail("no frame could be read back in %v seconds (window occluded?)", TIMEOUT)
+			fail("no frame could be read back in %v seconds", TIMEOUT)
 		}
 		// Between frames (no pass active): the standalone readback path.
 		check_render_texture("between frames")
