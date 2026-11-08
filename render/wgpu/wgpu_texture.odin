@@ -83,7 +83,7 @@ renderer_create_render_texture :: proc(width, height: int) -> core.Texture_Handl
 		width,
 		height,
 		.BGRA8Unorm,
-		{.TextureBinding, .CopyDst, .RenderAttachment},
+		{.TextureBinding, .CopyDst, .CopySrc, .RenderAttachment},
 	)
 }
 

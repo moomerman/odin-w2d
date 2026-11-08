@@ -72,6 +72,7 @@ renderer_begin_frame :: proc(color: core.Color) -> bool {
 	)
 
 	r.frame.active = true
+	r.frame.target = nil
 	r.scissor_rect = nil
 	return true
 }
@@ -192,6 +193,7 @@ renderer_set_render_target :: proc(
 	target_view: wgpu.TextureView
 	target_w, target_h: u32
 
+	r.frame.target = target
 	if handle, ok := target.?; ok {
 		entry := &r.textures[handle]
 		target_view = entry.view

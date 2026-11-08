@@ -142,6 +142,8 @@ Frame_State :: struct {
 	surface_tex:      wgpu.SurfaceTexture,
 	view:             wgpu.TextureView,
 	active:           bool,
+	// Render texture the current pass draws into, or nil for the screen.
+	target:           Maybe(core.Texture_Handle),
 
 	// Bind groups created this frame — released after submit, not mid-pass.
 	bind_groups:      [MAX_BIND_GROUPS_PER_FRAME]wgpu.BindGroup,
@@ -240,6 +242,10 @@ Renderer :: struct {
 
 	// Optional callback invoked after engine flush, before render pass ends.
 	pre_present_callback: proc(pass: rawptr, width, height: u32),
+
+	// Whether the surface was configured with CopySrc, so read_pixels can
+	// copy the swapchain texture.
+	surface_copy_src:     bool,
 }
 
 @(private = "package")
@@ -285,6 +291,8 @@ backend :: proc() -> core.Render_Backend {
 		set_view_projection = renderer_set_view_projection,
 		set_scissor_rect = renderer_set_scissor_rect,
 		set_pre_present_callback = renderer_set_pre_present_callback,
+		read_pixels = renderer_read_pixels,
+		read_texture = renderer_read_texture,
 	}
 }
 
@@ -350,10 +358,22 @@ renderer_on_device_ready :: proc() {
 	r.width, r.height = r.window.get_framebuffer_size()
 	r.queue = wgpu.DeviceGetQueue(r.device)
 
-	// Configure surface
+	// Configure surface. CopySrc (when the surface allows it) lets
+	// read_pixels copy the swapchain texture directly; desktop only, since
+	// readback is not implemented on web.
+	usage := wgpu.TextureUsageFlags{.RenderAttachment}
+	when ODIN_OS != .JS {
+		if caps, status := wgpu.SurfaceGetCapabilities(r.surface, r.adapter); status == .Success {
+			if .CopySrc in caps.usages {
+				usage += {.CopySrc}
+				r.surface_copy_src = true
+			}
+			wgpu.SurfaceCapabilitiesFreeMembers(caps)
+		}
+	}
 	r.config = wgpu.SurfaceConfiguration {
 		device      = r.device,
-		usage       = {.RenderAttachment},
+		usage       = usage,
 		format      = .BGRA8Unorm,
 		width       = r.width,
 		height      = r.height,

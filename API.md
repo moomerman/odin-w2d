@@ -282,6 +282,29 @@ reset_render_texture :: proc()
 destroy_render_texture :: proc(rt: ^Render_Texture)
 ```
 
+## Readback
+
+Copy pixels back from the GPU for screenshots and visual tests. Results are
+tightly packed RGBA8 (any BGRA surface is swizzled; the screen's alpha is
+255), row 0 at the top. Each call stalls until the GPU has finished the
+work so far, so use it for debugging and tests, not every frame. Desktop
+only: on web every call returns `ok = false` / `false`.
+
+`read_pixels` reads the screen as drawn so far this frame, at the
+framebuffer size in physical pixels (not `get_screen_size` on HiDPI). Call
+it inside the frame proc, after drawing and before `present`; drawing may
+continue afterwards. Drawing from `set_pre_present_callback` is not
+included. It returns `ok = false` when the frame was skipped because the
+surface is unavailable: on macOS that is the first frame (window not shown
+yet) and any frame while the window is fully covered, so retry next frame.
+`read_render_texture` works inside a frame or between frames.
+
+```odin
+read_pixels :: proc(allocator := context.allocator) -> (pixels: []u8, width, height: int, ok: bool)
+read_render_texture :: proc(rt: Render_Texture, allocator := context.allocator) -> (pixels: []u8, width, height: int, ok: bool)
+save_screenshot :: proc(path: string) -> bool // read_pixels + PNG
+```
+
 ## Text
 
 ```odin

@@ -26,11 +26,13 @@ primitives, per-vertex colour quads, bind-group cache keyed by (texture,
 projection slot), `get_font_metrics`, camera honoured inside render
 textures. Still open from that project:
 
-- **Screenshot readback.** `save_screenshot(path)` / `read_pixels()` from the
-  swapchain or a render texture (buffer copy + async map). With a way to
-  inject input events this gives scripted visual regression tests; verifying
-  the bench meant `screencapture` + window-bounds cropping + a Swift CGEvent
-  click tool.
+- **Input injection.** Screenshot readback has shipped (`read_pixels`,
+  `save_screenshot`); a way to inject input events would complete scripted
+  visual regression tests (the bench needed a Swift CGEvent click tool).
+- **Readback while occluded.** A frame whose surface reports occluded (macOS:
+  first frame, or window fully covered) is skipped, so `read_pixels` fails
+  for it. Unattended tests want frames drawn anyway, e.g. into an offscreen
+  target when the surface is unavailable.
 - **Text layout.** Letter spacing (HUD labels), word-wrapped draw/measure,
   and baseline-positioned drawing built on `get_font_metrics`. Variable
   fonts render only their default instance — a weight parameter or a
@@ -217,13 +219,6 @@ a sign they belong in the library (raylib `CheckCollisionRecs`, Usagi
 We ship a web target; mouse events alone won't cut it on mobile browsers.
 Touch events on the canvas mapped to a small API (`get_touch_count`,
 `get_touch_position(index)`), with single-touch optionally aliased to mouse.
-
-### Screenshot / pixel readback
-
-- `get_render_texture_pixels(rt) -> []u8` and/or `take_screenshot()`.
-- Also enables golden-image testing of the library itself.
-- wgpu: copy texture to a mapped buffer; async on web — API may need a
-  callback or be desktop-only initially.
 
 ## Worth considering — plays to the cross-platform pitch
 

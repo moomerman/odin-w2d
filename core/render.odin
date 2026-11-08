@@ -1,5 +1,7 @@
 package core
 
+import "base:runtime"
+
 // Texture is backend-agnostic. The handle is an opaque ID managed by
 // the active Render_Backend; width and height are cached for convenience.
 Texture :: struct {
@@ -169,4 +171,28 @@ Render_Backend :: struct {
 	// same render pass. The callback receives the render pass handle and
 	// framebuffer dimensions.
 	set_pre_present_callback: proc(callback: proc(pass: rawptr, width, height: u32)),
+
+	// Read back the screen as drawn so far this frame: flushes pending draws,
+	// copies the surface texture to a buffer and blocks until it is mapped.
+	// Returns tightly packed RGBA8, row 0 at the top, at framebuffer size.
+	// The pre-present callback has not run yet, so its drawing is not
+	// included. ok = false outside a frame or where unsupported (web).
+	read_pixels:              proc(
+		allocator: runtime.Allocator,
+	) -> (
+		pixels: []u8,
+		width, height: int,
+		ok: bool,
+	),
+
+	// Read back a render texture's contents as tightly packed RGBA8, row 0
+	// at the top. Works inside or outside a frame; blocks until done.
+	read_texture:             proc(
+		handle: Texture_Handle,
+		allocator: runtime.Allocator,
+	) -> (
+		pixels: []u8,
+		width, height: int,
+		ok: bool,
+	),
 }
