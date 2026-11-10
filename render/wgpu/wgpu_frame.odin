@@ -21,6 +21,7 @@ renderer_begin_frame :: proc(color: core.Color) -> bool {
 		return false
 	}
 
+	r.frame_index += 1
 	r.batch.vertex_count = 0
 	r.batch.buffer_offset = 0
 	r.batch.texture_view = nil
@@ -129,16 +130,33 @@ renderer_flush :: proc() {
 	// Use the custom shader pipeline if active (and compiled), otherwise the default.
 	entry, ok := hm.get(&r.shaders, r.batch.active_shader)
 	if ok && entry.pipelines[.Alpha] != nil {
-		// Upload dirty uniforms
-		if entry.uniform_dirty && entry.uniform_buffer != nil {
-			wgpu.QueueWriteBuffer(
-				r.queue,
-				entry.uniform_buffer,
-				0,
-				raw_data(entry.uniform_data),
-				uint(entry.uniform_size),
-			)
-			entry.uniform_dirty = false
+		// Upload changed uniforms into a fresh slot; earlier draws this frame
+		// keep reading the slot they were recorded with.
+		if entry.uniform_buffer != nil {
+			if entry.uniform_frame != r.frame_index {
+				// First use this frame: slots restart at 0, and the slot the
+				// shader last bound may be among those about to be reused,
+				// so write the current values again.
+				entry.uniform_frame = r.frame_index
+				entry.uniform_slot = 0
+				entry.uniform_dirty = true
+			}
+			if entry.uniform_dirty {
+				if entry.uniform_slot >= entry.uniform_capacity {
+					shader_grow_uniform_buffer(entry)
+				}
+				offset := u64(entry.uniform_slot) * entry.uniform_stride
+				wgpu.QueueWriteBuffer(
+					r.queue,
+					entry.uniform_buffer,
+					offset,
+					raw_data(entry.uniform_data),
+					uint(entry.uniform_size),
+				)
+				entry.uniform_offset = u32(offset)
+				entry.uniform_slot += 1
+				entry.uniform_dirty = false
+			}
 		}
 
 		// Rebuild the group-1 bind group if a texture binding changed. The old
@@ -162,7 +180,12 @@ renderer_flush :: proc() {
 			wgpu.RenderPassEncoderSetBindGroup(r.frame.pass, 0, r.batch.bind_group)
 		}
 		if entry.bind_group != nil {
-			wgpu.RenderPassEncoderSetBindGroup(r.frame.pass, 1, entry.bind_group)
+			if entry.uniform_buffer != nil {
+				offsets := [1]u32{entry.uniform_offset}
+				wgpu.RenderPassEncoderSetBindGroup(r.frame.pass, 1, entry.bind_group, offsets[:])
+			} else {
+				wgpu.RenderPassEncoderSetBindGroup(r.frame.pass, 1, entry.bind_group)
+			}
 		}
 	} else {
 		wgpu.RenderPassEncoderSetPipeline(r.frame.pass, r.pipelines[r.batch.blend_mode])
@@ -340,6 +363,10 @@ renderer_present :: proc() {
 	}
 	r.frame.bind_group_count = 0
 	r.batch.bind_group = nil
+	for buffer in r.frame.released_buffers {
+		wgpu.BufferRelease(buffer)
+	}
+	clear(&r.frame.released_buffers)
 
 	// Snapshot stats for the completed frame.
 	r.last_stats = r.current_stats

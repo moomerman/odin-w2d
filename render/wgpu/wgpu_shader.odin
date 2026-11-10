@@ -3,6 +3,7 @@ package renderer_wgpu
 import "base:runtime"
 import hm "core:container/handle_map"
 import "core:fmt"
+import "core:mem"
 import "core:strings"
 import "vendor:wgpu"
 
@@ -178,19 +179,13 @@ shader_build_entry :: proc(wgsl_source: string) -> Shader_Entry {
 		}
 	}
 
-	// Create uniform buffer and CPU staging buffer
+	// Create the multi-slot uniform buffer and the CPU copy of the values.
 	if entry.uniform_size > 0 {
-		// Round up to 16 bytes for WebGPU minimum buffer size
-		buf_size := u64(align_up(entry.uniform_size, 16))
-		entry.uniform_buffer = wgpu.DeviceCreateBuffer(
-			r.device,
-			&{
-				label = "Custom Shader Uniform Buffer",
-				usage = {.Uniform, .CopyDst},
-				size = buf_size,
-			},
-		)
+		entry.uniform_stride = u64(align_up(entry.uniform_size, UNIFORM_SLOT_ALIGNMENT))
+		entry.uniform_capacity = UNIFORM_INITIAL_SLOTS
+		entry.uniform_buffer = shader_create_uniform_buffer(&entry)
 		entry.uniform_data = make([]u8, entry.uniform_size)
+		entry.uniform_dirty = true
 	}
 
 	// Create bind group layout for group 1 (user uniforms + textures)
@@ -204,7 +199,11 @@ shader_build_entry :: proc(wgsl_source: string) -> Shader_Entry {
 				wgpu.BindGroupLayoutEntry {
 					binding = entry.uniform_binding,
 					visibility = {.Vertex, .Fragment},
-					buffer = {type = .Uniform, minBindingSize = u64(entry.uniform_size)},
+					buffer = {
+						type = .Uniform,
+						hasDynamicOffset = true,
+						minBindingSize = u64(entry.uniform_size),
+					},
 				},
 			)
 		}
@@ -256,6 +255,32 @@ shader_build_entry :: proc(wgsl_source: string) -> Shader_Entry {
 	)
 
 	return entry
+}
+
+@(private = "file")
+shader_create_uniform_buffer :: proc(entry: ^Shader_Entry) -> wgpu.Buffer {
+	return wgpu.DeviceCreateBuffer(
+		renderer.device,
+		&{
+			label = "Custom Shader Uniform Buffer",
+			usage = {.Uniform, .CopyDst},
+			size = entry.uniform_stride * u64(entry.uniform_capacity),
+		},
+	)
+}
+
+// Replace a shader's uniform buffer with one twice the size, when one frame
+// has changed its uniforms more often than there are slots. Draws already
+// recorded reference the old buffer, so it is released after submit; the
+// bind group is rebuilt against the new one.
+@(private = "package")
+shader_grow_uniform_buffer :: proc(entry: ^Shader_Entry) {
+	r := &renderer
+	append(&r.frame.released_buffers, entry.uniform_buffer)
+	entry.uniform_capacity *= 2
+	entry.uniform_buffer = shader_create_uniform_buffer(entry)
+	entry.uniform_slot = 0
+	entry.bind_group_dirty = true
 }
 
 // Map a parsed WGSL type to a settable uniform type. Structs aren't settable.
@@ -365,6 +390,7 @@ renderer_reload_shader :: proc(handle: core.Shader_Handle, wgsl_source: string) 
 	}
 
 	// Carry over uniform values by name where the field is still compatible.
+	// (new_entry.uniform_dirty is already set, so the next flush uploads them.)
 	for name, new_uniform in new_entry.uniforms {
 		old_uniform, found := old.uniforms[name]
 		if found &&
@@ -375,7 +401,6 @@ renderer_reload_shader :: proc(handle: core.Shader_Handle, wgsl_source: string) 
 				new_entry.uniform_data[new_uniform.offset:][:new_uniform.size],
 				old.uniform_data[old_uniform.offset:][:old_uniform.size],
 			)
-			new_entry.uniform_dirty = true
 		}
 	}
 
@@ -480,7 +505,8 @@ renderer_set_shader_texture :: proc(
 
 @(private = "package")
 renderer_set_shader_uniform :: proc(handle: core.Shader_Handle, name: string, value: any) {
-	entry, ok := hm.get(&renderer.shaders, handle)
+	r := &renderer
+	entry, ok := hm.get(&r.shaders, handle)
 	if !ok {
 		fmt.eprintf("[shader] invalid shader handle\n")
 		return
@@ -499,6 +525,40 @@ renderer_set_shader_uniform :: proc(handle: core.Shader_Handle, name: string, va
 
 	dst := entry.uniform_data[uniform.offset:][:uniform.size]
 
+	// Encode into a scratch copy first, so an unchanged value costs nothing:
+	// no flush and no new uniform slot.
+	stack: [256]u8
+	heap: []u8
+	defer delete(heap)
+	scratch: []u8
+	if uniform.size <= len(stack) {
+		scratch = stack[:uniform.size]
+	} else {
+		heap = make([]u8, uniform.size)
+		scratch = heap
+	}
+	copy(scratch, dst)
+	if !shader_encode_uniform(uniform, name, value, scratch) {
+		return
+	}
+	if mem.compare(scratch, dst) == 0 {
+		return
+	}
+
+	// Quads already batched were issued with the previous values — draw them
+	// first (same reason set_shader_texture flushes).
+	if r.batch.active_shader == handle {
+		renderer_flush()
+	}
+
+	copy(dst, scratch)
+	entry.uniform_dirty = true
+}
+
+// Write value into dst (the uniform's bytes in the uniform struct) in the
+// shader's layout. Returns false, after logging, when value can't be used.
+@(private = "file")
+shader_encode_uniform :: proc(uniform: Shader_Uniform, name: string, value: any, dst: []u8) -> bool {
 	// Bytes per value (per element for arrays) in the source data
 	src_size := 0
 	switch uniform.type {
@@ -535,7 +595,7 @@ renderer_set_shader_uniform :: proc(handle: core.Shader_Handle, name: string, va
 			src_data, src_len, src_stride = raw.data, raw.len, info.elem_size
 		case:
 			fmt.eprintfln("[shader] uniform %s is an array — pass an array or slice", name)
-			return
+			return false
 		}
 		if src_stride < src_size {
 			fmt.eprintfln(
@@ -544,15 +604,14 @@ renderer_set_shader_uniform :: proc(handle: core.Shader_Handle, name: string, va
 				src_stride,
 				src_size,
 			)
-			return
+			return false
 		}
 		src := ([^]u8)(src_data)
 		for i in 0 ..< min(src_len, uniform.count) {
 			copy(dst[i * uniform.stride:][:src_size], src[i * src_stride:][:src_size])
 		}
 	}
-
-	entry.uniform_dirty = true
+	return true
 }
 
 @(private = "package")

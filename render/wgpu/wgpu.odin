@@ -49,6 +49,18 @@ PROJECTION_SLOT_STRIDE :: 256 // must be >= min_uniform_buffer_offset_alignment
 @(private = "package")
 PROJECTION_MATRIX_SIZE :: size_of(matrix[4, 4]f32)
 
+// Custom shader uniforms use the same scheme: each shader's uniform buffer
+// holds several copies of its uniform struct, bound with a dynamic offset,
+// and every flush whose values changed writes the next slot. So a draw sees
+// the values set when it was issued, not the last values set in the frame.
+// Slots are aligned to 256 bytes — the largest min_uniform_buffer_offset_alignment
+// WebGPU allows, so valid on every device. The buffer doubles when a frame
+// runs out of slots.
+@(private = "package")
+UNIFORM_SLOT_ALIGNMENT :: 256
+@(private = "package")
+UNIFORM_INITIAL_SLOTS :: 16
+
 //-------//
 // TYPES //
 //-------//
@@ -119,12 +131,20 @@ Shader_Entry :: struct {
 	bind_group:        wgpu.BindGroup,
 	bind_group_dirty:  bool, // a texture changed — rebuild at next flush
 
-	// Uniform buffer
+	// Uniform buffer: uniform_capacity slots of uniform_stride bytes each.
+	// uniform_data is the CPU copy of the current values; uniform_dirty
+	// means it differs from the slot at uniform_offset and the next flush
+	// must write a new slot.
 	uniform_buffer:    wgpu.Buffer,
 	uniform_data:      []u8,
 	uniform_dirty:     bool,
 	uniform_size:      int,
 	uniform_binding:   u32,
+	uniform_stride:    u64,
+	uniform_capacity:  int,
+	uniform_slot:      int, // next slot to write this frame
+	uniform_offset:    u32, // dynamic offset of the slot draws bind
+	uniform_frame:     u64, // frame_index uniform_slot was last reset in
 
 	// Uniform metadata
 	uniforms:          map[string]Shader_Uniform,
@@ -154,6 +174,9 @@ Frame_State :: struct {
 	// Bind groups created this frame — released after submit, not mid-pass.
 	bind_groups:      [MAX_BIND_GROUPS_PER_FRAME]wgpu.BindGroup,
 	bind_group_count: int,
+	// Buffers replaced this frame (grown uniform buffers) that recorded
+	// draws may still reference — released after submit.
+	released_buffers: [dynamic]wgpu.Buffer,
 	// Cache so switching back and forth between the same textures reuses
 	// one bind group per (texture, projection slot) instead of creating a
 	// new one on every switch. Cleared each frame.
@@ -242,6 +265,7 @@ Renderer :: struct {
 
 	// Per-frame and batching state.
 	frame:                Frame_State,
+	frame_index:          u64, // incremented by every begin_frame
 	batch:                Batch_State,
 
 	// Active scissor rect in logical pixels, or nil for full viewport.
@@ -665,6 +689,10 @@ renderer_shutdown :: proc() {
 	if r.sampler != nil {wgpu.SamplerRelease(r.sampler)}
 	if r.batch.bind_group != nil {wgpu.BindGroupRelease(r.batch.bind_group)}
 	delete(r.frame.bind_group_cache)
+	for buffer in r.frame.released_buffers {
+		wgpu.BufferRelease(buffer)
+	}
+	delete(r.frame.released_buffers)
 	if r.bind_group_layout != nil {wgpu.BindGroupLayoutRelease(r.bind_group_layout)}
 	for pipeline in r.pipelines {
 		if pipeline != nil {wgpu.RenderPipelineRelease(pipeline)}
