@@ -31,6 +31,9 @@ step :: proc(dt: f32) -> bool {
 				ctx.init_proc()
 			}
 			ctx.init_called = true
+			// Restart frame timing so the first dt does not include the time
+			// init_proc spent loading; the first frame reports dt = 0.
+			ctx.prev_frame_time = {}
 		}
 		if ctx.frame_proc != nil {
 			process_input()
