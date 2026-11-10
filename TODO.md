@@ -35,6 +35,10 @@ textures. Still open from that project:
   `tests/render` (`just test`) is built on it. Still open: the desktop run
   loop is shared with windowed mode (fine in practice, nothing touches
   Cocoa), there is no null audio backend, and CI is not set up to run it.
+- **Automation — SHIPPED.** `W2D_HEADLESS` / `W2D_SCRIPT` / `W2D_FRAMES` /
+  `W2D_SCREENSHOT` drive any game from outside (`automation.odin`). Ideas
+  not built: comparing a screenshot against a golden image, recording a
+  script from live play, and dumping game-provided state alongside frames.
 - **Text layout.** Letter spacing (HUD labels), word-wrapped draw/measure,
   and baseline-positioned drawing built on `get_font_metrics`. Variable
   fonts render only their default instance — a weight parameter or a

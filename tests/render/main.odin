@@ -41,6 +41,7 @@ tests := []Test {
 	{name = "transform_stack", run = test_transform_stack},
 	{name = "uniforms_per_draw", run = test_uniforms_per_draw},
 	{name = "uniform_buffer_growth", run = test_uniform_buffer_growth},
+	{name = "uniforms_set_at_init", run = test_uniforms_set_at_init},
 	{name = "uniform_type_conversion", run = test_uniform_type_conversion},
 	{name = "many_quads", run = test_many_quads},
 	{name = "alpha_render_texture_compositing", run = test_alpha_render_texture_compositing},
@@ -66,6 +67,7 @@ failures: int
 test_failures: int
 
 tint_shader: w.Shader
+glow_shader: w.Shader
 small_rt: w.Render_Texture
 
 main :: proc() {
@@ -90,12 +92,20 @@ main :: proc() {
 
 init :: proc() {
 	tint_shader = w.load_shader(TINT_SHADER)
+	// Some uniforms are set once here and never again; others every draw.
+	glow_shader = w.load_shader(GLOW_SHADER)
+	w.set_shader_uniform(&glow_shader, "color_r", f32(0))
+	w.set_shader_uniform(&glow_shader, "color_g", f32(0))
+	w.set_shader_uniform(&glow_shader, "color_b", f32(1))
+	w.set_shader_uniform(&glow_shader, "intensity", f32(1))
+	w.set_shader_uniform(&glow_shader, "falloff", f32(8))
 	small_rt = w.create_render_texture(16, 16)
 	skip_filtered()
 }
 
 shutdown :: proc() {
 	w.destroy_shader(&tint_shader)
+	w.destroy_shader(&glow_shader)
 	w.destroy_render_texture(&small_rt)
 }
 
@@ -211,6 +221,42 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 `
 
+// A radial glow: five scalar uniforms (a 20-byte struct), colour times a
+// falloff from the quad's centre, returned premultiplied.
+GLOW_SHADER :: `
+struct VertexInput {
+    @location(0) position: vec2<f32>,
+    @location(1) texcoord: vec2<f32>,
+    @location(2) color: vec4<f32>,
+};
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) texcoord: vec2<f32>,
+};
+@group(0) @binding(0) var<uniform> projection: mat4x4<f32>;
+struct Params {
+    color_r: f32,
+    color_g: f32,
+    color_b: f32,
+    intensity: f32,
+    falloff: f32,
+};
+@group(1) @binding(0) var<uniform> params: Params;
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    var out: VertexOutput;
+    out.position = projection * vec4<f32>(in.position, 0.0, 1.0);
+    out.texcoord = in.texcoord;
+    return out;
+}
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let d = distance(in.texcoord, vec2<f32>(0.5, 0.5)) * 2.0;
+    let glow = clamp(exp(-d * d * params.falloff) * params.intensity, 0.0, 1.0);
+    return vec4<f32>(vec3<f32>(params.color_r, params.color_g, params.color_b) * glow, glow);
+}
+`
+
 //-------//
 // TESTS //
 //-------//
@@ -308,6 +354,24 @@ test_uniform_buffer_growth :: proc(step: int) -> bool {
 	expect_color(at(s, 20 * 16 + 8, 8), {131, 0, 124, 255}, "21st of 40", 1)
 	expect_color(at(s, 39 * 16 + 8, 8), {255, 0, 0, 255}, "last of 40")
 	return true
+}
+
+// Uniforms set once in the init proc keep their values in every later frame,
+// alongside ones that change per draw (and the quad's UVs span 0..1).
+test_uniforms_set_at_init :: proc(step: int) -> bool {
+	for i in 0 ..< 2 {
+		w.set_shader_uniform(&glow_shader, "color_r", f32(i))
+		w.set_shader_uniform(&glow_shader, "color_b", f32(1 - i))
+		w.set_shader(&glow_shader)
+		w.draw_rect({f32(i) * 200, 0, 200, 200}, w.WHITE)
+		w.reset_shader()
+	}
+	s := snap()
+	expect_color(at(s, 100, 100), {0, 0, 255, 255}, "first glow's centre", 2)
+	expect_color(at(s, 300, 100), {255, 0, 0, 255}, "second glow's centre", 2)
+	expect_color(at(s, 10, 100), w.BLACK, "glow has fallen off at the quad's edge", 2)
+	expect_color(at(s, 100, 190), w.BLACK, "glow has fallen off at the bottom", 2)
+	return step == 2
 }
 
 // Untyped constants arrive in an `any` as f64 / int; they must be converted,

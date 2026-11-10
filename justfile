@@ -42,12 +42,25 @@ check-tools:
 
 check-tests:
     odin check tests/render {{vet_flags}} -vet-packages:main
+    odin check tests/automation {{vet_flags}} -vet-packages:main
 
-# Headless render and input tests (no window; needs a GPU). Runs at 1x and 2x scale.
+# Headless tests (no window; needs a GPU): render and input at 1x and 2x
+# scale, then an ordinary program driven by a W2D_SCRIPT.
 test:
     odin build tests/render -out:build/tests-render
     ./build/tests-render 1
     ./build/tests-render 2
+    odin build tests/automation -out:build/tests-automation
+    rm -f build/automation-shot.png
+    W2D_HEADLESS=1 W2D_SCRIPT=tests/automation/script.txt ./build/tests-automation
+    test -s build/automation-shot.png
+
+# Run an example with no window and save a frame: just example=shapes shot
+# writes build/shots/shapes.png after `frames` frames. See automation.odin.
+shot frames="60":
+    mkdir -p build/shots
+    odin build examples/{{example}} -out:build/{{example}}
+    W2D_HEADLESS=1 W2D_FRAMES={{frames}} W2D_SCREENSHOT=build/shots/{{example}}.png ./build/{{example}}
 
 check-all-examples:
     #!/usr/bin/env bash

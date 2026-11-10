@@ -1,0 +1,9 @@
+# Drives tests/automation/main.odin; run from the repository root (just test).
+frame 5   key space tap                 # names are case-insensitive
+frame 8   key A down
+frame 10  screenshot build/automation-shot.png
+frame 11  mouse move 100 50
+frame 12  mouse click left
+frame 15  scroll 0 -3
+frame 20  resize 320 200
+frame 30  quit

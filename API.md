@@ -181,6 +181,45 @@ set_headless_size :: proc(width: int, height: int) // resize; call between frame
 quit :: proc() // stop the run loop after this frame (any backend); shutdown_proc then runs
 ```
 
+## Automation
+
+Run any game unattended, from outside, with no code changes: `init` reads
+these environment variables (desktop only). Any of them fixes dt at 1/60 s
+so runs repeat frame for frame.
+
+```
+W2D_HEADLESS=1 W2D_FRAMES=60 W2D_SCREENSHOT=out.png ./mygame
+W2D_HEADLESS=1 W2D_SCRIPT=smoke.txt ./mygame
+```
+
+| Variable | Effect |
+| --- | --- |
+| `W2D_HEADLESS=1` | No window, as `init_headless`; audio is muted |
+| `W2D_SCALE=2` | Headless only: simulated HiDPI scale |
+| `W2D_SCRIPT=path` | Play a script (works windowed too) |
+| `W2D_FRAMES=n` | Quit after `n` frames |
+| `W2D_SCREENSHOT=path` | With `W2D_FRAMES`: save the last frame |
+
+A script has one command per line; `#` starts a comment; frames count from
+0. Input is applied before that frame's frame proc runs, a screenshot is
+that frame as drawn (taken at `present`), and `quit` stops before that
+frame. A headless script with no `quit` ends after its last command.
+
+```
+frame 30  screenshot start.png
+frame 31  key Space down        # Key enum names, any case; down | up | tap
+frame 33  key Space up
+frame 50  mouse move 320 200    # window coordinates
+frame 51  mouse click left      # down | up | click, left | right | middle
+frame 60  scroll 0 -3
+frame 70  resize 800 600        # headless only
+frame 120 quit
+```
+
+The process exits with status 2 for a script that cannot be parsed and 1 if
+a screenshot could not be saved or was never reached. `just example=<name>
+shot` does the one-screenshot form for an example.
+
 ## Assets
 
 ```odin
