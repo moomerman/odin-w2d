@@ -21,10 +21,12 @@ Cross-platform is handled via compile-time `#+build` tags, not runtime flags:
 
 ## Testing
 
-`just test` runs `tests/render`: the engine with no window (`init_headless`), drawing known pictures and checking them with `read_pixels`, plus injected input. It needs a GPU but no display, runs in under a second, and exits non-zero on failure. `just verify` includes it.
+`just test` runs `tests/render`: the engine with no window (`init_headless`), drawing known pictures and checking them with `read_pixels`, plus injected input. Then `tests/automation` (an ordinary program driven by a `W2D_SCRIPT`) and `tests/replay` (a session recorded with `W2D_RECORD`, replayed, and its per-frame input log compared with the live run's; also `W2D_SCRIPT_ONLY`). It needs a GPU but no display, runs in a few seconds, and exits non-zero on failure. `just verify` includes it.
 
 - Add a test for every renderer or input fix: a `proc(step: int) -> (done: bool)` in `tests/render/main.odin`, added to the `tests` table. Run one with `./build/tests-render 1 <name-substring>`.
 - To see what any example or game draws, with no window and no code changes: `just example=shapes shot` writes `build/shots/shapes.png`; in general `W2D_HEADLESS=1 W2D_FRAMES=60 W2D_SCREENSHOT=out.png <binary>`. To drive input and take several screenshots, write a script and pass `W2D_SCRIPT=path` (format in `automation.odin` and `API.md`). Read the PNG to check the result.
+- To reproduce something seen by hand: run the game with `W2D_RECORD=session.txt`, then replay it with `W2D_SCRIPT=session.txt` (add `W2D_HEADLESS=1` and `screenshot` lines to see frames). Recording fixes dt at 1/60 s. Windowed, scripted and live input mix unless `W2D_SCRIPT_ONLY=1`. `get_frame_count()` is the `frame N` number, and `save_render_texture` writes a render texture to a PNG.
+- Window input in tests: the headless window has no OS events; `backend.headless_push_event` feeds it some (see `tests/replay`). `inject_*` is the game-side path.
 - wgpu applies every `QueueWriteBuffer` before the frame's commands run. Anything that changes between draws in a frame (projection, uniforms, vertices) needs its own buffer region per change, and the batch must be flushed before the change.
 
 ## Workflow
