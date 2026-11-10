@@ -49,6 +49,7 @@ step :: proc(dt: f32) -> bool {
 			calculate_frame_time()
 			ctx.audio.update()
 			ctx.frame_proc(ctx.frame_time)
+			ctx.frame_count += 1
 		}
 	}
 

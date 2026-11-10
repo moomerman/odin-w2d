@@ -64,6 +64,7 @@ tests := []Test {
 	{name = "many_textures", run = test_many_textures},
 	{name = "fragment_shader_draws", run = test_fragment_shader_draws},
 	{name = "fragment_shader_compile_error", run = test_fragment_shader_compile_error},
+	{name = "frame_count", run = test_frame_count},
 }
 
 scale: f32 = 1
@@ -131,6 +132,7 @@ frame :: proc(dt: f32) {
 	w.present()
 
 	step += 1
+	frames_run += 1
 	if done {
 		fmt.printfln("%s %s", test_failures == 0 ? "PASS" : "FAIL", t.name)
 		test_failures = 0
@@ -960,4 +962,19 @@ test_fragment_shader_compile_error :: proc(step: int) -> bool {
 	expect_color(at(s, 50, 25), w.RED, "broken fragment-only shader draws with the default")
 	expect_color(at(s, 150, 25), w.GREEN, "broken full shader draws with the default")
 	return false
+}
+
+// get_frame_count is the frame being run: one more each frame, and (as this
+// test program counts its own frames) equal to the number of frames so far.
+frames_run: int
+first_frame_count: int
+
+test_frame_count :: proc(step: int) -> bool {
+	if step == 0 {
+		first_frame_count = w.get_frame_count()
+		expect(first_frame_count == frames_run, "get_frame_count == frames run before this one")
+	} else {
+		expect(w.get_frame_count() == first_frame_count + step, "get_frame_count advances by 1")
+	}
+	return step == 2
 }

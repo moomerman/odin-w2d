@@ -19,6 +19,7 @@ click_pos: w.Vec2
 scroll_frame := -1
 size_at_25: [2]int
 dt_ok := true
+frame_count_ok := true
 
 main :: proc() {
 	if os.get_env("W2D_SCRIPT", context.temp_allocator) == "" {
@@ -45,6 +46,13 @@ main :: proc() {
 	check(&failures, scroll_frame == 15, "scroll on frame 15", scroll_frame)
 	check(&failures, size_at_25 == [2]int{320, 200}, "resized to 320x200 by frame 25", size_at_25)
 	check(&failures, dt_ok, "dt is 1/60 on every frame after the first", dt_ok)
+	check(&failures, frame_count_ok, "get_frame_count is the frame being run", frame_count_ok)
+	check(
+		&failures,
+		w.get_frame_count() == 30,
+		"get_frame_count after the run",
+		w.get_frame_count(),
+	)
 	if failures > 0 {
 		fmt.println("FAILED automation")
 		os.exit(1)
@@ -58,13 +66,18 @@ frame :: proc(dt: f32) {
 	if frames > 0 && dt != 1.0 / 60.0 {
 		dt_ok = false
 	}
-	if w.key_went_down(.Space) do space_down_frame = frames
-	if w.key_went_up(.Space) do space_up_frame = frames
+	if w.get_frame_count() != frames {
+		frame_count_ok = false
+	}
+	// get_frame_count is the number the script's `frame N` lines use.
+	n := w.get_frame_count()
+	if w.key_went_down(.Space) do space_down_frame = n
+	if w.key_went_up(.Space) do space_up_frame = n
 	if w.mouse_button_went_down(.Left) {
-		click_frame = frames
+		click_frame = n
 		click_pos = w.get_mouse_position()
 	}
-	if w.get_scroll_delta() == (w.Vec2{0, -3}) do scroll_frame = frames
+	if w.get_scroll_delta() == (w.Vec2{0, -3}) do scroll_frame = n
 	if frames == 25 {
 		sw, sh := w.get_screen_size()
 		size_at_25 = {sw, sh}

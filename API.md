@@ -153,6 +153,7 @@ init :: proc(width: int, height: int, title: string)
 run :: proc(init_proc: proc(), frame_proc: proc(dt: f32), shutdown_proc: proc())
 get_frame_time :: proc() -> f32
 get_time :: proc() -> f64
+get_frame_count :: proc() -> int // frame being run: 0 in the first frame proc call; the N of script `frame N`
 get_screen_size :: proc() -> (int, int)
 set_window_mode :: proc(mode: Window_Mode)
 set_vsync :: proc(enabled: bool) // default on; off = loop runs unthrottled, window updated ~60/s
@@ -201,7 +202,7 @@ W2D_HEADLESS=1 W2D_SCRIPT=smoke.txt ./mygame
 | `W2D_SCREENSHOT=path` | With `W2D_FRAMES`: save the last frame |
 
 A script has one command per line; `#` starts a comment; frames count from
-0. Input is applied before that frame's frame proc runs, a screenshot is
+0, and are the numbers `get_frame_count` returns. Input is applied before that frame's frame proc runs, a screenshot is
 that frame as drawn (taken at `present`), and `quit` stops before that
 frame. A headless script with no `quit` ends after its last command.
 

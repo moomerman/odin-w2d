@@ -42,6 +42,7 @@ platform_run :: proc() {
 				}
 				ctx.audio.update()
 				ctx.frame_proc(ctx.frame_time)
+				ctx.frame_count += 1
 				automation_end_frame()
 			}
 		}

@@ -28,6 +28,9 @@ Context :: struct {
 	frame_time:       f32, // seconds since last frame
 	fixed_frame_time: f32, // > 0: every frame reports exactly this dt (headless)
 	elapsed_time:     f64, // seconds since init
+	// Frames whose frame proc has run: during frame N's frame proc, N. The
+	// one counter for get_frame_count and W2D_SCRIPT's `frame N` lines.
+	frame_count:      int,
 
 	// Camera
 	camera:           Maybe(Camera),
@@ -143,6 +146,14 @@ run :: proc(init_proc: proc(), frame_proc: proc(dt: f32), shutdown_proc: proc())
 // Returns the time in seconds that the previous frame took.
 get_frame_time :: proc() -> f32 {
 	return ctx.frame_time
+}
+
+// Returns the number of the frame being run: 0 during the first call of the
+// frame proc, 1 during the second, and so on (after the run, the number of
+// frames run). This is the number W2D_SCRIPT's `frame N` lines and
+// W2D_RECORD's output refer to.
+get_frame_count :: proc() -> int {
+	return ctx.frame_count
 }
 
 // Returns the time in seconds since `init` was called.

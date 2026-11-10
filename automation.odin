@@ -19,7 +19,8 @@ package engine
 //
 // Any of these fixes dt at 1/60 s, so a run is repeatable frame for frame
 // (as long as the game itself does not read the wall clock or unseeded
-// randomness). Frames count from 0, the first call of the frame proc.
+// randomness). Frames count from 0, the first call of the frame proc; the
+// game sees the same number from get_frame_count.
 //
 // A script has one command per line, `#` starts a comment:
 //
@@ -79,7 +80,6 @@ Command :: struct {
 automation: struct {
 	active:     bool,
 	commands:   [dynamic]Command,
-	frame:      int, // the frame about to run, or running
 	last_frame: int, // highest frame any command refers to
 	failed:     bool,
 }
@@ -150,7 +150,7 @@ automation_begin_frame :: proc() {
 		return
 	}
 	for &command in automation.commands {
-		if command.frame != automation.frame || command.done || command.kind == .Screenshot {
+		if command.frame != ctx.frame_count || command.done || command.kind == .Screenshot {
 			continue
 		}
 		command.done = true
@@ -186,27 +186,26 @@ automation_present :: proc() {
 		return
 	}
 	for &command in automation.commands {
-		if command.kind != .Screenshot || command.done || command.frame > automation.frame {
+		if command.kind != .Screenshot || command.done || command.frame > ctx.frame_count {
 			continue
 		}
 		if save_screenshot(command.path) {
 			command.done = true
-			fmt.printfln("[w2d] frame %d: wrote %s", automation.frame, command.path)
+			fmt.printfln("[w2d] frame %d: wrote %s", ctx.frame_count, command.path)
 		} else {
 			command.tried = true
 		}
 	}
 }
 
-// After frame N's frame proc returns.
+// After frame N's frame proc returns and ctx.frame_count has moved on to N+1.
 @(private = "package")
 automation_end_frame :: proc() {
 	if !automation.active {
 		return
 	}
-	automation.frame += 1
 	// Nothing would ever close a headless run whose script has finished.
-	if ctx.headless && automation.frame > automation.last_frame {
+	if ctx.headless && ctx.frame_count > automation.last_frame {
 		quit()
 	}
 }
@@ -231,7 +230,7 @@ automation_finish :: proc() {
 					"[w2d] screenshot %s (frame %d) was never taken: the run ended at frame %d, or the game did not call present",
 					command.path,
 					command.frame,
-					automation.frame,
+					ctx.frame_count,
 				)
 			}
 			automation.failed = true
