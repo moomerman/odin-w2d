@@ -120,7 +120,11 @@ when DEV {
 		}
 		watch_state.last_poll = ctx.elapsed_time
 
-		for &entry in watch_state.entries {
+		// Indexed loop, re-taking the pointer each iteration: a data on_change
+		// callback may load more assets, which appends to (and can reallocate)
+		// the watch list. Entries added during the sweep are visited too.
+		for i := 0; i < len(watch_state.entries); i += 1 {
+			entry := &watch_state.entries[i]
 			mtime, mtime_err := os.modification_time_by_path(entry.path)
 			if mtime_err != nil {
 				// Editors often save via write-to-temp + rename; the file can
@@ -151,7 +155,7 @@ when DEV {
 
 			switch entry.kind {
 			case .Texture:
-				watch_reload_texture(&entry, data)
+				watch_reload_texture(entry, data)
 			case .Shader:
 				if ctx.renderer.reload_shader(entry.shader, string(data)) {
 					fmt.printfln("[assets] reloaded shader: %s", entry.path)
@@ -168,8 +172,11 @@ when DEV {
 					fmt.eprintfln("[assets] audio reload failed, keeping previous: %s", entry.path)
 				}
 			case .Data:
-				entry.on_change(entry.path, data)
-				fmt.printfln("[assets] reloaded data: %s", entry.path)
+				// Copy what is needed first: entry may dangle once the callback
+				// has run (the path string itself is heap-owned and stays valid).
+				path, on_change := entry.path, entry.on_change
+				on_change(path, data)
+				fmt.printfln("[assets] reloaded data: %s", path)
 			}
 			delete(data)
 		}
