@@ -146,20 +146,27 @@ wa_update :: proc() {
 	if state == nil do return
 	if !state.initialized do return
 
-	finished_handle := _js_poll_finished_callback()
-	if finished_handle == 0 do return
+	// JS queues every finished handle; drain the whole queue so several
+	// sounds ending in the same frame all get their callback this frame.
+	for {
+		finished_handle := _js_poll_finished_callback()
+		if finished_handle == 0 do break
 
-	instance := core.Audio_Instance(finished_handle)
-	for i := 0; i < state.callback_count; i += 1 {
-		if state.callbacks[i].instance == instance {
-			if state.callbacks[i].on_end != nil {
-				state.callbacks[i].on_end(instance, state.callbacks[i].user_data)
+		instance := core.Audio_Instance(finished_handle)
+		for i := 0; i < state.callback_count; i += 1 {
+			if state.callbacks[i].instance == instance {
+				// Remove the entry before calling on_end, which may play or
+				// stop sounds and so modify the table.
+				entry := state.callbacks[i]
+				state.callback_count -= 1
+				if i < state.callback_count {
+					state.callbacks[i] = state.callbacks[state.callback_count]
+				}
+				if entry.on_end != nil {
+					entry.on_end(instance, entry.user_data)
+				}
+				break
 			}
-			state.callback_count -= 1
-			if i < state.callback_count {
-				state.callbacks[i] = state.callbacks[state.callback_count]
-			}
-			break
 		}
 	}
 }
