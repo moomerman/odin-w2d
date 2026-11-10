@@ -5,3 +5,7 @@ package engine
 save_screenshot :: proc(path: string) -> bool {
 	return false
 }
+
+save_render_texture :: proc(rt: Render_Texture, path: string) -> bool {
+	return false
+}

@@ -13,7 +13,24 @@ save_screenshot :: proc(path: string) -> bool {
 		return false
 	}
 	defer delete(pixels)
+	return save_png(path, pixels, width, height)
+}
 
+// read_render_texture, then encode the result as a PNG at path: the
+// texture's exact pixel size, straight alpha. Same timing rules as
+// read_render_texture. Desktop only.
+save_render_texture :: proc(rt: Render_Texture, path: string) -> bool {
+	pixels, width, height, ok := read_render_texture(rt)
+	if !ok {
+		return false
+	}
+	defer delete(pixels)
+	return save_png(path, pixels, width, height)
+}
+
+// Encode tightly packed RGBA8 as a PNG file.
+@(private = "file")
+save_png :: proc(path: string, pixels: []u8, width, height: int) -> bool {
 	img := image.Image {
 		width    = width,
 		height   = height,

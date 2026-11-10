@@ -16,6 +16,8 @@
 package main
 
 import "core:fmt"
+import "core:image"
+import "core:image/png"
 import "core:os"
 import "core:strconv"
 import "core:strings"
@@ -65,6 +67,7 @@ tests := []Test {
 	{name = "fragment_shader_draws", run = test_fragment_shader_draws},
 	{name = "fragment_shader_compile_error", run = test_fragment_shader_compile_error},
 	{name = "frame_count", run = test_frame_count},
+	{name = "save_render_texture", run = test_save_render_texture},
 }
 
 scale: f32 = 1
@@ -977,4 +980,37 @@ test_frame_count :: proc(step: int) -> bool {
 		expect(w.get_frame_count() == first_frame_count + step, "get_frame_count advances by 1")
 	}
 	return step == 2
+}
+
+// save_render_texture writes the texture at its own pixel size (whatever the
+// window's scale) with straight alpha, like read_render_texture.
+test_save_render_texture :: proc(step: int) -> bool {
+	OUT :: "build/tests-render-rt.png"
+	rt := w.create_render_texture(24, 8)
+	defer w.destroy_render_texture(&rt)
+	w.set_render_texture(rt, w.BLANK)
+	w.draw_rect({0, 0, 12, 8}, w.RED)
+	w.draw_rect({12, 0, 12, 8}, w.Color{0, 255, 0, 128})
+	w.reset_render_texture()
+	expect(w.save_render_texture(rt, OUT), "save_render_texture ok")
+	expect(!w.save_render_texture(rt, "build/no-such-dir/rt.png"), "unwritable path fails")
+
+	img, err := png.load_from_file(OUT, {.alpha_add_if_missing}, context.temp_allocator)
+	expect(err == nil, "PNG loads")
+	if err != nil {
+		return true
+	}
+	defer image.destroy(img, context.temp_allocator)
+	expect(img.width == 24 && img.height == 8, "PNG is the texture's size")
+	expect(img.channels == 4 && img.depth == 8, "PNG is RGBA8")
+	if img.width == 24 && img.height == 8 && img.channels == 4 {
+		p := img.pixels[:]
+		px :: proc(p: []u8, x, y: int) -> w.Color {
+			i := (y * 24 + x) * 4
+			return {p[i], p[i + 1], p[i + 2], p[i + 3]}
+		}
+		expect_color(px(p, 2, 4), w.RED, "opaque red half")
+		expect_color(px(p, 20, 4), {0, 255, 0, 128}, "50% green half, straight alpha", 1)
+	}
+	return true
 }

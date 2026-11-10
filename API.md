@@ -423,6 +423,7 @@ or between frames, and returns straight alpha.
 read_pixels :: proc(allocator := context.allocator) -> (pixels: []u8, width, height: int, ok: bool)
 read_render_texture :: proc(rt: Render_Texture, allocator := context.allocator) -> (pixels: []u8, width, height: int, ok: bool)
 save_screenshot :: proc(path: string) -> bool // read_pixels + PNG
+save_render_texture :: proc(rt: Render_Texture, path: string) -> bool // read_render_texture + PNG: its pixel size, straight alpha
 ```
 
 ## Text
