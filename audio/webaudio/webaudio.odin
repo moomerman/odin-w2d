@@ -85,6 +85,7 @@ foreign audio_js {
 @(private = "file")
 Callback_Entry :: struct {
 	instance:  core.Audio_Instance,
+	bus:       core.Audio_Bus, // as passed to JS; stop_all matches it exactly
 	on_end:    core.Audio_End_Callback,
 	user_data: rawptr,
 }
@@ -288,6 +289,7 @@ wa_play_audio :: proc(
 	if params.on_end != nil && state.callback_count < MAX_CALLBACKS {
 		state.callbacks[state.callback_count] = Callback_Entry {
 			instance  = instance,
+			bus       = params.bus,
 			on_end    = params.on_end,
 			user_data = params.user_data,
 		}
@@ -339,6 +341,17 @@ wa_stop_all_audio :: proc(bus: core.Audio_Bus) {
 
 	if bus == core.AUDIO_BUS_NONE {
 		state.callback_count = 0
+		return
+	}
+
+	// JS stops instances whose bus handle equals `bus` exactly; drop the
+	// same instances' callbacks so the fixed table does not fill up with
+	// entries that will never fire.
+	for i := state.callback_count - 1; i >= 0; i -= 1 {
+		if state.callbacks[i].bus == bus {
+			state.callback_count -= 1
+			state.callbacks[i] = state.callbacks[state.callback_count]
+		}
 	}
 }
 
