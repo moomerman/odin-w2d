@@ -26,15 +26,15 @@ primitives, per-vertex colour quads, bind-group cache keyed by (texture,
 projection slot), `get_font_metrics`, camera honoured inside render
 textures. Still open from that project:
 
-- **Input injection.** Screenshot readback has shipped (`read_pixels`,
-  `save_screenshot`); a way to inject input events would complete scripted
-  visual regression tests (the bench needed a Swift CGEvent click tool).
-- **Headless mode.** Occluded frames now draw into an offscreen target and
-  `set_vsync(false)` runs unthrottled, so covered windows and fast test runs
-  work. Still missing for CI: a null window backend (no NSWindow, no
-  surface, fixed framebuffer size) and a plain run loop that does not go
-  through the Cocoa application loop; wgpu can create a device without a
-  surface, and GitHub's macOS runners have a GPU.
+- **Input injection — SHIPPED.** `inject_key`, `inject_mouse_move`,
+  `inject_mouse_button`, `inject_scroll` queue events for the next frame on
+  any backend.
+- **Headless mode — SHIPPED.** `init_headless` uses the null window backend
+  (`window/null`: no NSWindow, no surface, fixed framebuffer size with an
+  optional simulated HiDPI scale) and a fixed dt; `quit()` ends the run.
+  `tests/render` (`just test`) is built on it. Still open: the desktop run
+  loop is shared with windowed mode (fine in practice, nothing touches
+  Cocoa), there is no null audio backend, and CI is not set up to run it.
 - **Text layout.** Letter spacing (HUD labels), word-wrapped draw/measure,
   and baseline-positioned drawing built on `get_font_metrics`. Variable
   fonts render only their default instance — a weight parameter or a
@@ -96,7 +96,11 @@ dev consoles.
   SDL3 has it natively; web is async (`navigator.clipboard`) so the getter may
   need to be best-effort/cached.
 
-### 3. Programmatic quit / close handling
+### 3. Programmatic quit / close handling — PARTLY SHIPPED
+
+`quit()` shipped (desktop loop exits cleanly; web `step` shuts down once and
+returns false). Still open: the exported `request_quit` for JS hosts and a
+close callback.
 
 Needed on desktop (a game can't currently exit itself or confirm-on-close) and
 for web embedding (see web notes below — hosts that unmount the canvas leak a

@@ -30,7 +30,7 @@ check-example:
     odin check examples/{{example}} {{vet_flags}} -vet-packages:main,game
 
 check:
-    odin check . -no-entry-point {{vet_flags}} -vet-packages:engine,core,backend,renderer_wgpu,window_darwin,window_sdl3,window_js,audio_miniaudio,audio_webaudio,gamepad_sdl3,gamepad_js
+    odin check . -no-entry-point {{vet_flags}} -vet-packages:engine,core,backend,renderer_wgpu,window_darwin,window_sdl3,window_js,window_null,audio_miniaudio,audio_webaudio,gamepad_sdl3,gamepad_js
 
 check-ui:
     odin check ui -no-entry-point {{vet_flags}} -vet-packages:ui
@@ -39,6 +39,15 @@ check-tools:
     odin check tools/build_web {{vet_flags}} -vet-packages:build_web
     odin check tools/time_tracker -no-entry-point {{vet_flags}} -vet-packages:time_tracker
     odin check tools/tracking_allocator -no-entry-point {{vet_flags}} -vet-packages:tracking_allocator
+
+check-tests:
+    odin check tests/render {{vet_flags}} -vet-packages:main
+
+# Headless render and input tests (no window; needs a GPU). Runs at 1x and 2x scale.
+test:
+    odin build tests/render -out:build/tests-render
+    ./build/tests-render 1
+    ./build/tests-render 2
 
 check-all-examples:
     #!/usr/bin/env bash
@@ -51,4 +60,4 @@ check-all-examples:
 format:
     odinfmt -w .
 
-verify: format check check-ui check-tools check-all-examples
+verify: format check check-ui check-tools check-tests check-all-examples test

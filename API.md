@@ -163,6 +163,24 @@ get_surface_format :: proc() -> u32
 set_pre_present_callback :: proc(callback: proc(pass: rawptr, width, height: u32))
 ```
 
+### Headless
+
+`init_headless` replaces `init` for tests and CI: no window is created and
+every frame is drawn into an offscreen target, so `read_pixels`,
+`save_screenshot` and render textures work as usual. Frames run as fast as
+they draw, and each reports exactly `frame_time` as its dt (the first frame
+reports 0), so runs are deterministic. `scale` simulates a HiDPI backing
+scale: the framebuffer is `width*scale` by `height*scale` pixels. There is
+no close button, so end the run with `quit()`; input comes from the
+`inject_*` procs (see Input - Injection). Desktop only. `tests/render` is a
+worked example; run it with `just test`.
+
+```odin
+init_headless :: proc(width: int, height: int, scale: f32 = 1, frame_time: f32 = 1.0 / 60.0)
+set_headless_size :: proc(width: int, height: int) // resize; call between frames
+quit :: proc() // stop the run loop after this frame (any backend); shutdown_proc then runs
+```
+
 ## Assets
 
 ```odin
@@ -411,6 +429,19 @@ gamepad_button_went_up :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -
 gamepad_button_is_held :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -> bool
 get_gamepad_axis :: proc(gamepad: Gamepad_Index, axis: Gamepad_Axis) -> f32
 set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left, right: f32, duration: f32 = 0)
+```
+
+## Input - Injection
+
+Queue synthetic input for scripted tests and demos. Works with any window
+backend, and is the only input under `init_headless`. Events are applied at
+the start of the next frame, as if the OS had delivered them.
+
+```odin
+inject_key :: proc(key: Key, down: bool)
+inject_mouse_move :: proc(pos: Vec2) // delta is the distance from the previous position
+inject_mouse_button :: proc(button: Mouse_Button, down: bool) // at the pointer's position
+inject_scroll :: proc(delta: Vec2)
 ```
 
 ## Input - Cursor
