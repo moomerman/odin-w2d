@@ -29,7 +29,9 @@ renderer_begin_frame :: proc(color: core.Color) -> bool {
 	clear(&r.frame.bind_group_cache)
 	r.batch.active_shader = {}
 	r.batch.blend_mode = .Alpha
-	r.projection_slot = 0
+	// Slot 0 holds the base window projection (renderer_update_projection);
+	// per-frame camera and render-target matrices go in slots 1 and up.
+	r.projection_slot = 1
 	r.projection_offset = 0
 
 	// Reset per-frame stats, carrying over resource counts.
@@ -264,16 +266,27 @@ renderer_set_render_target :: proc(
 		},
 	)
 
-	// Update projection to match the target dimensions.
-	projection := linalg.matrix_ortho3d_f32(0, f32(target_w), f32(target_h), 0, -1, 1)
-	assert(
-		r.projection_slot < MAX_PROJECTION_SLOTS,
-		"Too many render target switches in one frame",
-	)
-	offset := u64(r.projection_slot) * PROJECTION_SLOT_STRIDE
-	wgpu.QueueWriteBuffer(r.queue, r.projection_buffer, offset, &projection, size_of(projection))
-	r.projection_offset = offset
-	r.projection_slot += 1
+	// Update projection to match the target dimensions. The screen's is the
+	// base window projection, which always lives in slot 0.
+	if target == nil {
+		r.projection_offset = 0
+	} else {
+		projection := linalg.matrix_ortho3d_f32(0, f32(target_w), f32(target_h), 0, -1, 1)
+		assert(
+			r.projection_slot < MAX_PROJECTION_SLOTS,
+			"Too many render target switches in one frame (MAX_PROJECTION_SLOTS)",
+		)
+		offset := u64(r.projection_slot) * PROJECTION_SLOT_STRIDE
+		wgpu.QueueWriteBuffer(
+			r.queue,
+			r.projection_buffer,
+			offset,
+			&projection,
+			size_of(projection),
+		)
+		r.projection_offset = offset
+		r.projection_slot += 1
+	}
 
 	// Reset scissor — the new pass defaults to full viewport.
 	r.scissor_rect = nil

@@ -38,6 +38,8 @@ MAX_BIND_GROUPS_PER_FRAME :: 256
 
 // The projection buffer holds multiple view-projection matrices so that
 // mid-frame camera changes (e.g. world → UI) each get their own slot.
+// Slot 0 always holds the base window projection; each frame's camera and
+// render-target changes use slots 1 ..< MAX_PROJECTION_SLOTS.
 // Same principle as GPU_BUFFER_BATCHES for vertices.
 // Each slot is aligned to 256 bytes (wgpu min_uniform_buffer_offset_alignment).
 @(private = "package")
@@ -206,6 +208,7 @@ Renderer :: struct {
 	projection_buffer:    wgpu.Buffer,
 	projection_offset:    u64, // byte offset of the current slot
 	projection_slot:      int, // next slot to write to
+	base_projection:      matrix[4, 4]f32, // CPU copy of slot 0
 
 	// Sampler
 	sampler:              wgpu.Sampler,
@@ -550,10 +553,16 @@ renderer_update_projection :: proc() {
 	// and stay DPI-independent. The surface/framebuffer uses physical pixels.
 	lw, lh := r.window.get_window_size()
 	projection := linalg.matrix_ortho3d_f32(0, f32(lw), f32(lh), 0, -1, 1)
-	// Write to slot 0 and reset the slot counter. Called at init and on resize.
+	// Slot 0 is reserved for this base projection; begin_frame starts the
+	// per-frame slots at 1. Called at init and on resize. A resize can land
+	// mid-frame, so only reset the slot state between frames — slots already
+	// written this frame are still referenced by recorded draws.
+	r.base_projection = projection
 	wgpu.QueueWriteBuffer(r.queue, r.projection_buffer, 0, &projection, size_of(projection))
-	r.projection_offset = 0
-	r.projection_slot = 1
+	if !r.frame.active {
+		r.projection_offset = 0
+		r.projection_slot = 1
+	}
 }
 
 @(private = "package")
@@ -713,6 +722,15 @@ renderer_get_surface_format :: proc() -> u32 {
 renderer_set_view_projection :: proc(m: matrix[4, 4]f32) {
 	r := &renderer
 	if !r.initialized {
+		return
+	}
+	// The base window projection (e.g. set_camera(nil) on the screen) is
+	// already in slot 0; reuse it rather than spending a slot.
+	if m == r.base_projection {
+		if r.projection_offset != 0 {
+			r.projection_offset = 0
+			r.batch.texture_view = nil
+		}
 		return
 	}
 	assert(
