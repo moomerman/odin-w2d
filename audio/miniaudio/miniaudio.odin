@@ -175,13 +175,7 @@ ma_shutdown :: proc() {
 
 	for inst in state.instances {
 		if inst != nil {
-			miniaudio.sound_uninit(&inst.sound)
-			if inst.source_type == .Static {
-				miniaudio.audio_buffer_uninit(&inst.buffer)
-			} else if inst.has_decoder {
-				miniaudio.decoder_uninit(&inst.decoder)
-			}
-			free(inst, state.allocator)
+			release_instance(inst)
 		}
 	}
 	delete(state.instances)
@@ -246,13 +240,7 @@ ma_update :: proc() {
 		if inst == nil do continue
 
 		if intrinsics.atomic_load(&inst.finished) {
-			miniaudio.sound_uninit(&inst.sound)
-			if inst.source_type == .Static {
-				miniaudio.audio_buffer_uninit(&inst.buffer)
-			} else if inst.has_decoder {
-				miniaudio.decoder_uninit(&inst.decoder)
-			}
-			free(inst, state.allocator)
+			release_instance(inst)
 			state.instances[i] = nil
 		}
 	}
@@ -491,21 +479,8 @@ ma_reload_audio_from_bytes :: proc(source: core.Audio_Source, data: []u8) -> boo
 		return false
 	}
 
-	// Playing instances read from the PCM buffer we are about to free —
-	// stop and uninit them synchronously (marking finished is not enough;
-	// cleanup is deferred to the next update pass).
-	#reverse for inst, i in state.instances {
-		if inst == nil || inst.source != source do continue
-
-		miniaudio.sound_uninit(&inst.sound)
-		if inst.source_type == .Static {
-			miniaudio.audio_buffer_uninit(&inst.buffer)
-		} else if inst.has_decoder {
-			miniaudio.decoder_uninit(&inst.decoder)
-		}
-		free(inst, state.allocator)
-		state.instances[i] = nil
-	}
+	// Playing instances read from the PCM buffer we are about to free.
+	release_source_instances(source)
 
 	delete(src.data, state.allocator)
 	src.data = pcm_data
@@ -518,6 +493,20 @@ ma_reload_audio_from_bytes :: proc(source: core.Audio_Source, data: []u8) -> boo
 	return true
 }
 
+// Synchronously stop and free every instance playing `source`. Needed before
+// freeing the source's memory: the audio thread reads it directly, so marking
+// instances finished is not enough (that cleanup waits for the next update).
+// Does not fire on_end, matching stop_audio.
+@(private = "file")
+release_source_instances :: proc(source: core.Audio_Source) {
+	#reverse for inst, i in state.instances {
+		if inst == nil || inst.source != source do continue
+
+		release_instance(inst)
+		state.instances[i] = nil
+	}
+}
+
 @(private = "file")
 ma_destroy_audio :: proc(source: core.Audio_Source) {
 	if state == nil do return
@@ -528,6 +517,10 @@ ma_destroy_audio :: proc(source: core.Audio_Source) {
 
 	src := state.sources[idx]
 	if src == nil do return
+
+	// Playing instances read from the PCM buffer / encoded stream data we are
+	// about to free. Like stop_audio, this does not fire their on_end.
+	release_source_instances(source)
 
 	if src.type == .Static {
 		delete(src.data, state.allocator)
@@ -737,6 +730,20 @@ ma_play_audio :: proc(
 	append(&state.instances, inst)
 
 	return inst.handle
+}
+
+// Uninit an instance's miniaudio objects and free it. ma_sound_uninit
+// detaches the sound from the node graph, after which the audio thread no
+// longer touches it.
+@(private = "file")
+release_instance :: proc(inst: ^Playing_Instance) {
+	miniaudio.sound_uninit(&inst.sound)
+	if inst.source_type == .Static {
+		miniaudio.audio_buffer_uninit(&inst.buffer)
+	} else if inst.has_decoder {
+		miniaudio.decoder_uninit(&inst.decoder)
+	}
+	free(inst, state.allocator)
 }
 
 @(private = "file")
