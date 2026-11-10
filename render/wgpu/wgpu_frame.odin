@@ -261,6 +261,20 @@ renderer_set_render_target :: proc(
 		return
 	}
 
+	// Validate before touching the current pass: a destroyed handle, or a
+	// texture that was not created as a render texture, can't be drawn into.
+	if handle, ok := target.?; ok {
+		entry, found := r.textures[handle]
+		if !found ||
+		   entry.view == nil ||
+		   .RenderAttachment not_in wgpu.TextureGetUsage(entry.handle) {
+			fmt.eprintln(
+				"[renderer/wgpu] set_render_target: invalid or destroyed render texture — target unchanged",
+			)
+			return
+		}
+	}
+
 	// Flush any pending geometry and end the current render pass.
 	renderer_flush()
 	wgpu.RenderPassEncoderEnd(r.frame.pass)
