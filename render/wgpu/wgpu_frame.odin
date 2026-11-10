@@ -56,10 +56,20 @@ renderer_begin_frame :: proc(color: core.Color) -> bool {
 		// Headless (null window backend): there is no surface, so every
 		// frame is offscreen and nothing paces the loop.
 		r.frame.offscreen = true
-	} else if !r.vsync && time.tick_diff(r.last_surface_frame, now) < SURFACE_FRAME_INTERVAL {
+	} else if ODIN_OS != .JS &&
+	   !r.vsync &&
+	   time.tick_diff(r.last_surface_frame, now) < SURFACE_FRAME_INTERVAL {
+		// (Not on the web: the browser paces frames itself and set_vsync
+		// has no effect there.)
 		r.frame.offscreen = true
 	} else {
 		r.frame.surface_tex = wgpu.SurfaceGetCurrentTexture(r.surface)
+		// The web binding (wgpu.js) hands back the texture but never writes
+		// a status, leaving it zero, which is not a named value.
+		if r.frame.surface_tex.status == wgpu.SurfaceGetCurrentTextureStatus(0) &&
+		   r.frame.surface_tex.texture != nil {
+			r.frame.surface_tex.status = .SuccessOptimal
+		}
 		switch r.frame.surface_tex.status {
 		case .SuccessOptimal, .SuccessSuboptimal:
 			r.frame.view = wgpu.TextureCreateView(r.frame.surface_tex.texture, nil)
@@ -87,6 +97,9 @@ renderer_begin_frame :: proc(color: core.Color) -> bool {
 				r.last_surface_frame = time.tick_now()
 			}
 		case .Error:
+			fmt.panicf("[renderer/wgpu] get_current_texture status=%v", r.frame.surface_tex.status)
+		case:
+			// A status outside the enum must not fall through with no view.
 			fmt.panicf("[renderer/wgpu] get_current_texture status=%v", r.frame.surface_tex.status)
 		}
 	}
