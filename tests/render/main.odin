@@ -57,6 +57,11 @@ tests := []Test {
 	{name = "text_draws", run = test_text_draws},
 	{name = "input_injection", run = test_input_injection},
 	{name = "resize", run = test_resize, between = between_resize},
+	{name = "sampling_linear_filter", run = test_sampling_linear_filter},
+	{name = "sampling_wrap", run = test_sampling_wrap},
+	{name = "sampling_change_mid_frame", run = test_sampling_change_mid_frame},
+	{name = "sampling_render_texture_shader", run = test_sampling_render_texture_shader},
+	{name = "many_textures", run = test_many_textures},
 }
 
 scale: f32 = 1
@@ -702,4 +707,173 @@ test_resize :: proc(step: int) -> bool {
 	expect(s.width == int(WIDTH * scale) && s.height == int(HEIGHT * scale), "framebuffer size")
 	expect_color(at(s, 630, 350), w.RED, "bottom-right corner")
 	return step == 2
+}
+
+//----------//
+// SAMPLING //
+//----------//
+
+// A 2x1 texture: a red texel then a blue one.
+red_blue_texture :: proc() -> w.Texture {
+	pixels := [8]u8{255, 0, 0, 255, 0, 0, 255, 255}
+	return w.load_texture(pixels[:], 2, 1)
+}
+
+// Nearest returns one texel or the other; linear blends them, half and half
+// on the texel boundary and 70/30 at u = 0.4.
+test_sampling_linear_filter :: proc(step: int) -> bool {
+	nearest := red_blue_texture()
+	defer w.destroy_texture(&nearest)
+	linear := red_blue_texture()
+	defer w.destroy_texture(&linear)
+	expect(w.get_texture_filter(linear) == .Nearest, "textures start .Nearest")
+	w.set_texture_filter(linear, .Linear)
+	expect(w.get_texture_filter(linear) == .Linear, "get_texture_filter reports .Linear")
+
+	w.draw_texture_rect(nearest, {0, 0, 2, 1}, {0, 0, 200, 20})
+	w.draw_texture_rect(linear, {0, 0, 2, 1}, {0, 40, 200, 20})
+	s := snap()
+	expect_color(at(s, 80, 10), {255, 0, 0, 255}, "nearest at u=0.4 is the red texel")
+	expect_color(at(s, 120, 10), {0, 0, 255, 255}, "nearest at u=0.6 is the blue texel")
+	expect_color(at(s, 80, 50), {178, 0, 77, 255}, "linear at u=0.4 blends 70/30", 2)
+	expect_color(at(s, 100, 50), {128, 0, 128, 255}, "linear on the texel boundary", 2)
+	expect_color(at(s, 10, 50), {255, 0, 0, 255}, "linear clamps at the left edge", 1)
+	return true
+}
+
+// A source rect four texels wide over a two-texel texture: clamp stretches
+// the last texel, repeat tiles, mirror tiles flipped.
+test_sampling_wrap :: proc(step: int) -> bool {
+	clamped := red_blue_texture()
+	defer w.destroy_texture(&clamped)
+	repeated := red_blue_texture()
+	defer w.destroy_texture(&repeated)
+	mirrored := red_blue_texture()
+	defer w.destroy_texture(&mirrored)
+	expect(w.get_texture_wrap(clamped) == .Clamp, "textures start .Clamp")
+	w.set_texture_wrap(repeated, .Repeat)
+	w.set_texture_wrap(mirrored, .Mirror)
+	expect(w.get_texture_wrap(repeated) == .Repeat, "get_texture_wrap reports .Repeat")
+
+	src := w.Rect{0, 0, 4, 1}
+	w.draw_texture_rect(clamped, src, {0, 0, 200, 20})
+	w.draw_texture_rect(repeated, src, {0, 40, 200, 20})
+	w.draw_texture_rect(mirrored, src, {0, 80, 200, 20})
+	s := snap()
+	RED :: w.Color{255, 0, 0, 255}
+	BLUE :: w.Color{0, 0, 255, 255}
+	expect_color(at(s, 25, 10), RED, "clamp: first texel")
+	expect_color(at(s, 125, 10), BLUE, "clamp: past the edge is the edge texel")
+	expect_color(at(s, 175, 10), BLUE, "clamp: still the edge texel")
+	expect_color(at(s, 75, 50), BLUE, "repeat: second texel")
+	expect_color(at(s, 125, 50), RED, "repeat: second copy starts red")
+	expect_color(at(s, 175, 50), BLUE, "repeat: second copy ends blue")
+	expect_color(at(s, 125, 90), BLUE, "mirror: flipped copy starts blue")
+	expect_color(at(s, 175, 90), RED, "mirror: flipped copy ends red")
+	return true
+}
+
+// The same texture drawn three times in one frame, its filter changed
+// between the draws: each draw keeps the filter it was issued with (the
+// third reuses the first's cached bind group).
+test_sampling_change_mid_frame :: proc(step: int) -> bool {
+	tex := red_blue_texture()
+	defer w.destroy_texture(&tex)
+	w.draw_texture_rect(tex, {0, 0, 2, 1}, {0, 0, 200, 20})
+	w.set_texture_filter(tex, .Linear)
+	w.draw_texture_rect(tex, {0, 0, 2, 1}, {0, 40, 200, 20})
+	w.set_texture_filter(tex, .Nearest)
+	w.draw_texture_rect(tex, {0, 0, 4, 1}, {0, 80, 200, 20})
+	w.set_texture_wrap(tex, .Repeat)
+	w.draw_texture_rect(tex, {0, 0, 4, 1}, {0, 120, 200, 20})
+	s := snap()
+	expect_color(at(s, 80, 10), {255, 0, 0, 255}, "draw before the change stays nearest")
+	expect_color(at(s, 80, 50), {178, 0, 77, 255}, "draw after the change is linear", 2)
+	expect_color(at(s, 40, 90), {255, 0, 0, 255}, "draw after changing back is nearest")
+	expect_color(at(s, 125, 90), {0, 0, 255, 255}, "draw before set_texture_wrap clamps")
+	expect_color(at(s, 125, 130), {255, 0, 0, 255}, "draw after set_texture_wrap repeats")
+	return true
+}
+
+// Passes the sample through with red and blue swapped, so the result shows
+// both that the custom shader ran and how it sampled.
+SWAP_SHADER :: `
+struct VertexInput {
+    @location(0) position: vec2<f32>,
+    @location(1) texcoord: vec2<f32>,
+    @location(2) color: vec4<f32>,
+};
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) texcoord: vec2<f32>,
+};
+@group(0) @binding(0) var<uniform> projection: mat4x4<f32>;
+@group(0) @binding(1) var tex_sampler: sampler;
+@group(0) @binding(2) var tex: texture_2d<f32>;
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    var out: VertexOutput;
+    out.position = projection * vec4<f32>(in.position, 0.0, 1.0);
+    out.texcoord = in.texcoord;
+    return out;
+}
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    return textureSample(tex, tex_sampler, in.texcoord).bgra;
+}
+`
+
+// The motivating case: a low-resolution render texture with linear
+// filtering, stretched over the screen by a post-process shader.
+swap_shader: w.Shader
+sampling_rt: w.Render_Texture
+
+test_sampling_render_texture_shader :: proc(step: int) -> bool {
+	if step == 1 {
+		w.destroy_shader(&swap_shader)
+		w.destroy_render_texture(&sampling_rt)
+		return true
+	}
+	swap_shader = w.load_shader(SWAP_SHADER)
+	sampling_rt = w.create_render_texture(2, 1)
+	w.set_texture_filter(sampling_rt.texture, .Linear)
+
+	w.set_camera(nil)
+	w.set_render_texture(sampling_rt, w.BLACK)
+	w.draw_rect({0, 0, 1, 1}, {255, 0, 0, 255})
+	w.draw_rect({1, 0, 1, 1}, {0, 0, 255, 255})
+	w.reset_render_texture()
+
+	w.set_shader(&swap_shader)
+	w.draw_texture_rect(sampling_rt.texture, {0, 0, 2, 1}, {0, 0, 200, 20})
+	w.reset_shader()
+	s := snap()
+	expect_color(at(s, 10, 10), {0, 0, 255, 255}, "red texel, swapped to blue", 1)
+	expect_color(at(s, 80, 10), {77, 0, 178, 255}, "linear blend through the shader", 2)
+	expect_color(at(s, 190, 10), {255, 0, 0, 255}, "blue texel, swapped to red", 1)
+	return false
+}
+
+// More distinct textures in one frame than the bind group list once held
+// (256), each drawn twice with a sampler change between.
+test_many_textures :: proc(step: int) -> bool {
+	N :: 300
+	textures: [N]w.Texture
+	for i in 0 ..< N {
+		pixel := [4]u8{u8(i % 256), 0, 255, 255}
+		textures[i] = w.load_texture(pixel[:], 1, 1)
+	}
+	defer for &tex in textures {
+		w.destroy_texture(&tex)
+	}
+	for i in 0 ..< N {
+		x, y := f32(i % 30) * 20, f32(i / 30) * 20
+		w.draw_texture_rect(textures[i], {0, 0, 1, 1}, {x, y, 10, 20})
+		w.set_texture_filter(textures[i], .Linear)
+		w.draw_texture_rect(textures[i], {0, 0, 1, 1}, {x + 10, y, 10, 20})
+	}
+	s := snap()
+	expect_color(at(s, 5, 10), {0, 0, 255, 255}, "first texture")
+	expect_color(at(s, 29 * 20 + 15, 9 * 20 + 10), {299 % 256, 0, 255, 255}, "last texture")
+	return true
 }

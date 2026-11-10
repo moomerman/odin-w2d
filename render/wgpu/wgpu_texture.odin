@@ -210,6 +210,34 @@ renderer_destroy_texture :: proc(handle: core.Texture_Handle) {
 	delete_key(&r.textures, handle)
 }
 
+// Changing a texture's sampling needs no flush here: the next draw of it
+// finds a different sampler than the batch bound and flushes then, so quads
+// already batched keep the setting they were issued with.
+@(private = "package")
+renderer_set_texture_sampling :: proc(
+	handle: core.Texture_Handle,
+	filter: core.Texture_Filter,
+	wrap: core.Texture_Wrap,
+) {
+	if entry, ok := &renderer.textures[handle]; ok {
+		entry.filter = filter
+		entry.wrap = wrap
+	}
+}
+
+@(private = "package")
+renderer_get_texture_sampling :: proc(
+	handle: core.Texture_Handle,
+) -> (
+	filter: core.Texture_Filter,
+	wrap: core.Texture_Wrap,
+	ok: bool,
+) {
+	entry: Texture_Entry
+	entry, ok = renderer.textures[handle]
+	return entry.filter, entry.wrap, ok
+}
+
 @(private = "package")
 renderer_get_white_texture :: proc() -> core.Texture_Handle {
 	return renderer.white_texture

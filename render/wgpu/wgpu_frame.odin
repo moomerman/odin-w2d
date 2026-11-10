@@ -26,8 +26,9 @@ renderer_begin_frame :: proc(color: core.Color) -> bool {
 	r.batch.buffer_index = 0
 	r.batch.buffer_offset = 0
 	r.batch.texture_view = nil
+	r.batch.sampler = nil
 	r.batch.bind_group = nil
-	r.frame.bind_group_count = 0
+	clear(&r.frame.bind_groups)
 	clear(&r.frame.bind_group_cache)
 	r.batch.active_shader = {}
 	r.batch.blend_mode = .Alpha
@@ -204,12 +205,7 @@ renderer_flush :: proc() {
 		// release to after submit via the per-frame ring.
 		if entry.bind_group_dirty {
 			if entry.bind_group != nil {
-				assert(
-					r.frame.bind_group_count < MAX_BIND_GROUPS_PER_FRAME,
-					"Too many bind group changes in one frame",
-				)
-				r.frame.bind_groups[r.frame.bind_group_count] = entry.bind_group
-				r.frame.bind_group_count += 1
+				append(&r.frame.bind_groups, entry.bind_group)
 			}
 			entry.bind_group = shader_create_bind_group(entry)
 			entry.bind_group_dirty = false
@@ -419,10 +415,10 @@ renderer_present :: proc() {
 	r.frame.view = nil
 
 	// Release all bind groups created this frame now that the GPU is done with them.
-	for i in 0 ..< r.frame.bind_group_count {
-		wgpu.BindGroupRelease(r.frame.bind_groups[i])
+	for bind_group in r.frame.bind_groups {
+		wgpu.BindGroupRelease(bind_group)
 	}
-	r.frame.bind_group_count = 0
+	clear(&r.frame.bind_groups)
 	r.batch.bind_group = nil
 	for buffer in r.frame.released_buffers {
 		wgpu.BufferRelease(buffer)
@@ -497,7 +493,9 @@ renderer_push_quad_colors :: proc(
 }
 
 // Shared setup for push_quad and push_quad_ex: check frame active, look up texture,
-// flush on texture change or batch full. Returns the renderer pointer, or nil if
+// flush on texture or sampler change, or when the batch is full. A texture
+// whose filter/wrap changed since the batch bound it selects a different
+// sampler, so quads already batched draw with the old setting. Returns the renderer pointer, or nil if
 // the quad should be skipped.
 @(private = "file")
 prepare_quad :: proc(tex_handle: core.Texture_Handle) -> ^Renderer {
@@ -511,10 +509,12 @@ prepare_quad :: proc(tex_handle: core.Texture_Handle) -> ^Renderer {
 		return nil
 	}
 
-	if r.batch.texture_view != entry.view {
+	sampler := r.samplers[entry.filter][entry.wrap]
+	if r.batch.texture_view != entry.view || r.batch.sampler != sampler {
 		renderer_flush()
 		r.batch.texture_view = entry.view
-		bind_texture(entry.view)
+		r.batch.sampler = sampler
+		bind_texture(entry.view, sampler)
 		r.current_stats.texture_switches += 1
 	}
 
@@ -548,12 +548,13 @@ push_vertex :: proc(r: ^Renderer, px, py, u, v, cr, cg, cb, ca: f32) {
 }
 
 @(private = "file")
-bind_texture :: proc(tex_view: wgpu.TextureView) {
+bind_texture :: proc(tex_view: wgpu.TextureView, sampler: wgpu.Sampler) {
 	r := &renderer
 
 	key := Bind_Group_Key {
-		view   = tex_view,
-		offset = r.projection_offset,
+		view    = tex_view,
+		sampler = sampler,
+		offset  = r.projection_offset,
 	}
 	if cached, found := r.frame.bind_group_cache[key]; found {
 		r.batch.bind_group = cached
@@ -573,7 +574,7 @@ bind_texture :: proc(tex_view: wgpu.TextureView) {
 						offset = r.projection_offset,
 						size = PROJECTION_MATRIX_SIZE,
 					},
-					{binding = 1, sampler = r.sampler},
+					{binding = 1, sampler = sampler},
 					{binding = 2, textureView = tex_view},
 				},
 			),
@@ -581,12 +582,7 @@ bind_texture :: proc(tex_view: wgpu.TextureView) {
 	)
 
 	// Track for deferred release after frame submit, and cache for reuse.
-	assert(
-		r.frame.bind_group_count < MAX_BIND_GROUPS_PER_FRAME,
-		"Too many distinct texture/camera combinations in one frame (MAX_BIND_GROUPS_PER_FRAME)",
-	)
-	r.frame.bind_groups[r.frame.bind_group_count] = r.batch.bind_group
-	r.frame.bind_group_count += 1
+	append(&r.frame.bind_groups, r.batch.bind_group)
 	r.frame.bind_group_cache[key] = r.batch.bind_group
 }
 

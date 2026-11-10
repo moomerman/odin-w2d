@@ -38,9 +38,6 @@ GPU_BUFFER_BATCHES :: 8
 @(private = "package")
 GPU_BUFFER_VERTICES :: BATCH_MAX_VERTICES * GPU_BUFFER_BATCHES
 
-@(private = "package")
-MAX_BIND_GROUPS_PER_FRAME :: 256
-
 // The projection buffer holds multiple view-projection matrices so that
 // mid-frame camera changes (e.g. world → UI) each get their own slot.
 // Slot 0 always holds the base window projection; each frame's camera and
@@ -87,6 +84,10 @@ Texture_Entry :: struct {
 	view:   wgpu.TextureView,
 	width:  int,
 	height: int,
+	// Sampler state, chosen per draw from renderer.samplers. Kept across
+	// reload_texture, which replaces only the GPU texture.
+	filter: core.Texture_Filter,
+	wrap:   core.Texture_Wrap,
 }
 
 // WGSL type tag for uniform metadata.
@@ -184,21 +185,22 @@ Frame_State :: struct {
 	target_h:         u32,
 
 	// Bind groups created this frame — released after submit, not mid-pass.
-	bind_groups:      [MAX_BIND_GROUPS_PER_FRAME]wgpu.BindGroup,
-	bind_group_count: int,
+	// Grows as needed: a frame may draw any number of distinct textures.
+	bind_groups:      [dynamic]wgpu.BindGroup,
 	// Buffers replaced this frame (grown uniform buffers) that recorded
 	// draws may still reference — released after submit.
 	released_buffers: [dynamic]wgpu.Buffer,
 	// Cache so switching back and forth between the same textures reuses
-	// one bind group per (texture, projection slot) instead of creating a
+	// one bind group per (texture, sampler, projection slot) instead of creating a
 	// new one on every switch. Cleared each frame.
 	bind_group_cache: map[Bind_Group_Key]wgpu.BindGroup,
 }
 
 @(private = "package")
 Bind_Group_Key :: struct {
-	view:   wgpu.TextureView,
-	offset: u64, // projection slot byte offset
+	view:    wgpu.TextureView,
+	sampler: wgpu.Sampler,
+	offset:  u64, // projection slot byte offset
 }
 
 // Vertex batching state within a frame.
@@ -209,6 +211,7 @@ Batch_State :: struct {
 	buffer_index:  int, // vertex buffer the next flush writes to
 	buffer_offset: int, // running offset (in vertices) into that buffer
 	texture_view:  wgpu.TextureView, // currently bound texture for batching
+	sampler:       wgpu.Sampler, // and the sampler it is bound with
 	bind_group:    wgpu.BindGroup, // current projection+sampler+texture bind group
 	active_shader: core.Shader_Handle, // zero-value = default pipeline
 	blend_mode:    core.Blend_Mode,
@@ -246,8 +249,9 @@ Renderer :: struct {
 	projection_slot:      int, // next slot to write to
 	base_projection:      matrix[4, 4]f32, // CPU copy of slot 0
 
-	// Sampler
-	sampler:              wgpu.Sampler,
+	// One sampler per filter/wrap combination, created at init; each draw
+	// binds the one its texture's settings select.
+	samplers:             [core.Texture_Filter][core.Texture_Wrap]wgpu.Sampler,
 
 	// Vertex buffers (GPU side), each GPU_BUFFER_VERTICES vertices; a frame
 	// uses as many as it fills, starting from the first.
@@ -337,6 +341,8 @@ backend :: proc() -> core.Render_Backend {
 		update_texture = renderer_update_texture,
 		reload_texture = renderer_reload_texture,
 		destroy_texture = renderer_destroy_texture,
+		set_texture_sampling = renderer_set_texture_sampling,
+		get_texture_sampling = renderer_get_texture_sampling,
 		get_white_texture = renderer_get_white_texture,
 		get_stats = renderer_get_stats,
 		load_shader = renderer_load_shader,
@@ -467,22 +473,12 @@ renderer_on_device_ready :: proc() {
 		},
 	)
 
-	// Create sampler
-	r.sampler = wgpu.DeviceCreateSampler(
-		r.device,
-		&{
-			addressModeU = .ClampToEdge,
-			addressModeV = .ClampToEdge,
-			addressModeW = .ClampToEdge,
-			magFilter = .Nearest,
-			minFilter = .Nearest,
-			mipmapFilter = .Nearest,
-			lodMinClamp = 0,
-			lodMaxClamp = 32,
-			compare = .Undefined,
-			maxAnisotropy = 1,
-		},
-	)
+	// Create the samplers. Textures have no mipmaps, so mipmapFilter is moot.
+	for filter in core.Texture_Filter {
+		for wrap in core.Texture_Wrap {
+			r.samplers[filter][wrap] = create_sampler(filter, wrap)
+		}
+	}
 
 	// Create projection uniform buffer (multi-slot for mid-frame camera changes)
 	r.projection_buffer = wgpu.DeviceCreateBuffer(
@@ -725,8 +721,13 @@ renderer_shutdown :: proc() {
 	delete(r.vertex_buffers)
 	if r.index_buffer != nil {wgpu.BufferRelease(r.index_buffer)}
 	if r.projection_buffer != nil {wgpu.BufferRelease(r.projection_buffer)}
-	if r.sampler != nil {wgpu.SamplerRelease(r.sampler)}
+	for &row in r.samplers {
+		for sampler in row {
+			if sampler != nil {wgpu.SamplerRelease(sampler)}
+		}
+	}
 	if r.batch.bind_group != nil {wgpu.BindGroupRelease(r.batch.bind_group)}
+	delete(r.frame.bind_groups)
 	delete(r.frame.bind_group_cache)
 	for buffer in r.frame.released_buffers {
 		wgpu.BufferRelease(buffer)
@@ -913,6 +914,35 @@ blend_state :: proc(mode: core.Blend_Mode) -> wgpu.BlendState {
 		return {color = component(.Dst, .OneMinusSrcAlpha), alpha = component(.Zero, .One)}
 	}
 	return {}
+}
+
+@(private = "file")
+create_sampler :: proc(filter: core.Texture_Filter, wrap: core.Texture_Wrap) -> wgpu.Sampler {
+	filter_mode: wgpu.FilterMode = filter == .Linear ? .Linear : .Nearest
+	address_mode: wgpu.AddressMode
+	switch wrap {
+	case .Clamp:
+		address_mode = .ClampToEdge
+	case .Repeat:
+		address_mode = .Repeat
+	case .Mirror:
+		address_mode = .MirrorRepeat
+	}
+	return wgpu.DeviceCreateSampler(
+		renderer.device,
+		&{
+			addressModeU = address_mode,
+			addressModeV = address_mode,
+			addressModeW = address_mode,
+			magFilter = filter_mode,
+			minFilter = filter_mode,
+			mipmapFilter = .Nearest,
+			lodMinClamp = 0,
+			lodMaxClamp = 32,
+			compare = .Undefined,
+			maxAnisotropy = 1,
+		},
+	)
 }
 
 // Create a render pipeline with the standard vertex layout and the color

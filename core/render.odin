@@ -22,6 +22,22 @@ Render_Texture :: struct {
 	texture: Texture,
 }
 
+// How a texture is sampled when it is drawn larger or smaller than its
+// pixels, or at a fractional position. Per texture; set with
+// set_texture_filter.
+Texture_Filter :: enum u8 {
+	Nearest, // default: crisp pixels, no blending between texels
+	Linear, // bilinear: blends the four nearest texels (smooth scaling)
+}
+
+// What a texture sampled outside 0..1 returns — a source rect that extends
+// past the texture's edges. Per texture; set with set_texture_wrap.
+Texture_Wrap :: enum u8 {
+	Clamp, // default: the edge texel repeats outwards
+	Repeat, // the texture tiles
+	Mirror, // the texture tiles, every other copy flipped
+}
+
 // How drawn pixels combine with what is already in the render target.
 // Alpha is the default. Additive suits lights, particles and glow;
 // Multiply suits shadows and light-map compositing.
@@ -108,6 +124,24 @@ Render_Backend :: struct {
 	// texture and rebind any custom-shader bindings that reference it.
 	// Must be called outside begin_frame/present.
 	reload_texture:           proc(handle: Texture_Handle, data: []u8, width, height: int),
+
+	// Set how a texture is filtered and wrapped when sampled (by the default
+	// shader and by custom shaders, through the group 0 sampler). Draws
+	// already issued keep the previous setting; later draws use the new one.
+	set_texture_sampling:     proc(
+		handle: Texture_Handle,
+		filter: Texture_Filter,
+		wrap: Texture_Wrap,
+	),
+
+	// The texture's current filter and wrap; ok = false for an unknown handle.
+	get_texture_sampling:     proc(
+		handle: Texture_Handle,
+	) -> (
+		filter: Texture_Filter,
+		wrap: Texture_Wrap,
+		ok: bool,
+	),
 
 	// Get the built-in 1x1 white texture used for solid color drawing.
 	get_white_texture:        proc() -> Texture_Handle,

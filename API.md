@@ -344,6 +344,44 @@ update_texture :: proc(tex: Texture, data: []u8, x, y, width, height: int)
 destroy_texture :: proc(tex: ^Texture)
 ```
 
+### Filtering and wrapping
+
+Each texture, render textures included (pass `rt.texture`), has its own
+filter and wrap mode. Every texture starts `.Nearest` / `.Clamp`: crisp
+pixels, edge texels stretched outwards. The setting applies to draws issued
+after the change, including later in the same frame; draws already issued
+keep the previous one. It is stored with the handle, so it survives a hot
+reload. Custom shaders get it too: they sample through the group 0
+`tex_sampler`, which is the drawn texture's sampler. (Group 1 textures bound
+with `set_shader_texture` have no sampler of their own; read them with
+`textureLoad`, or with `tex_sampler`, which carries the drawn texture's
+setting.) The font atlas stays `.Nearest` / `.Clamp`, since glyphs are
+rasterised at the size they are drawn.
+
+```odin
+Texture_Filter :: enum u8 {
+    Nearest, // default: crisp pixels
+    Linear,  // bilinear: smooth scaling, e.g. a low-res render texture under a CRT shader
+}
+Texture_Wrap :: enum u8 {
+    Clamp,  // default: the edge texel repeats outwards
+    Repeat, // tiles: a src rect larger than the texture draws several copies
+    Mirror, // tiles, every other copy flipped
+}
+set_texture_filter :: proc(tex: Texture, filter: Texture_Filter)
+set_texture_wrap :: proc(tex: Texture, wrap: Texture_Wrap)
+get_texture_filter :: proc(tex: Texture) -> Texture_Filter
+get_texture_wrap :: proc(tex: Texture) -> Texture_Wrap
+```
+
+A scrolling backdrop is a repeating texture drawn with a moving, oversized
+source rect:
+
+```odin
+w.set_texture_wrap(clouds, .Repeat)
+w.draw_texture_rect(clouds, {scroll, 0, screen_w, f32(clouds.height)}, {0, 0, screen_w, f32(clouds.height)})
+```
+
 ## Render Textures
 
 The active camera applies inside a render texture too, with the texture's
