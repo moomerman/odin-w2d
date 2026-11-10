@@ -52,7 +52,11 @@ renderer_begin_frame :: proc(color: core.Color) -> bool {
 	// picture.
 	r.frame.offscreen = false
 	now := time.tick_now()
-	if !r.vsync && time.tick_diff(r.last_surface_frame, now) < SURFACE_FRAME_INTERVAL {
+	if r.surface == nil {
+		// Headless (null window backend): there is no surface, so every
+		// frame is offscreen and nothing paces the loop.
+		r.frame.offscreen = true
+	} else if !r.vsync && time.tick_diff(r.last_surface_frame, now) < SURFACE_FRAME_INTERVAL {
 		r.frame.offscreen = true
 	} else {
 		r.frame.surface_tex = wgpu.SurfaceGetCurrentTexture(r.surface)

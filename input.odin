@@ -28,6 +28,10 @@ Input_State :: struct {
 	// Set by init_gamepad. The gamepad subsystem is opt-in, so games that never
 	// touch a gamepad don't pay its startup cost (~hundreds of ms on some platforms).
 	gamepad_active:           bool,
+	// Events queued by the inject_* procs, applied at the start of the next
+	// frame after the window backend's own events.
+	injected:                 [dynamic]core.Event,
+	inject_pos:               Vec2, // pointer position after the queued events
 }
 
 @(private = "package")
@@ -56,41 +60,15 @@ process_input :: proc() {
 		}
 	}
 
-	// Drain events from the window backend.
+	// Drain events from the window backend, then any injected ones.
 	for event in ctx.window.get_events() {
-		switch e in event {
-		case core.Mouse_Move_Event:
-			input.mouse_pos = e.pos
-			input.mouse_delta += e.delta
-		case core.Mouse_Button_Event:
-			input.mouse_pos = e.pos
-			btn := int(e.button)
-			if e.down {
-				input.mouse_held[btn] = true
-				input.mouse_went_down[btn] = true
-				input.mouse_deferred_up[btn] = false
-			} else {
-				input.mouse_held[btn] = false
-				input.mouse_went_up[btn] = true
-			}
-		case core.Mouse_Scroll_Event:
-			input.scroll_delta += e.delta
-			if !e.momentum {
-				input.scroll_delta_no_momentum += e.delta
-			}
-		case core.Key_Event:
-			k := int(e.key)
-			if e.down {
-				if !e.repeat {
-					input.key_went_down[k] = true
-				}
-				input.key_held[k] = true
-			} else {
-				input.key_held[k] = false
-				input.key_went_up[k] = true
-			}
-		}
+		apply_event(event)
 	}
+	for event in input.injected {
+		apply_event(event)
+	}
+	// (the builtin clear is shadowed by the engine's own clear proc)
+	resize(&input.injected, 0)
 
 	// macOS trackpads can deliver DOWN+UP in the same event batch when the
 	// user clicks, then send a sustained DOWN ~500ms later once the OS
@@ -111,6 +89,49 @@ process_input :: proc() {
 		input.gamepads_prev = input.gamepads_curr
 		ctx.gamepad.poll(&input.gamepads_curr)
 	}
+}
+
+
+@(private = "file")
+apply_event :: proc(event: core.Event) {
+	switch e in event {
+	case core.Mouse_Move_Event:
+		input.mouse_pos = e.pos
+		input.mouse_delta += e.delta
+	case core.Mouse_Button_Event:
+		input.mouse_pos = e.pos
+		btn := int(e.button)
+		if e.down {
+			input.mouse_held[btn] = true
+			input.mouse_went_down[btn] = true
+			input.mouse_deferred_up[btn] = false
+		} else {
+			input.mouse_held[btn] = false
+			input.mouse_went_up[btn] = true
+		}
+	case core.Mouse_Scroll_Event:
+		input.scroll_delta += e.delta
+		if !e.momentum {
+			input.scroll_delta_no_momentum += e.delta
+		}
+	case core.Key_Event:
+		k := int(e.key)
+		if e.down {
+			if !e.repeat {
+				input.key_went_down[k] = true
+			}
+			input.key_held[k] = true
+		} else {
+			input.key_held[k] = false
+			input.key_went_up[k] = true
+		}
+	}
+}
+
+@(private = "package")
+input_shutdown :: proc() {
+	delete(input.injected)
+	input.injected = nil
 }
 
 
@@ -276,4 +297,50 @@ set_cursor :: proc(cursor: System_Cursor) {
 // Set a custom cursor from RGBA pixel data.
 set_custom_cursor :: proc(pixels: []u8, width, height: int, hot_x: int = 0, hot_y: int = 0) {
 	ctx.window.set_custom_cursor(pixels, width, height, hot_x, hot_y)
+}
+
+//-----------------//
+// INPUT INJECTION //
+//-----------------//
+// Queue synthetic input, for scripted tests and demos. Works with any window
+// backend (it is the only input there is under init_headless). Queued events
+// are applied at the start of the next frame, exactly as if the OS had
+// delivered them, so the went_down / went_up / is_held queries see them from
+// that frame's frame proc onwards.
+
+// Queue a key press (down = true) or release.
+inject_key :: proc(key: Key, down: bool) {
+	append(&input.injected, core.Event(core.Key_Event{key = key, down = down}))
+}
+
+// Queue a pointer move to `pos` (window coordinates). The mouse delta is the
+// distance from the pointer's previous position.
+inject_mouse_move :: proc(pos: Vec2) {
+	prev := inject_pointer()
+	input.inject_pos = pos
+	append(&input.injected, core.Event(core.Mouse_Move_Event{pos = pos, delta = pos - prev}))
+}
+
+// Queue a mouse button press or release at the pointer's current position
+// (move it first with inject_mouse_move).
+inject_mouse_button :: proc(button: Mouse_Button, down: bool) {
+	pos := inject_pointer()
+	input.inject_pos = pos
+	append(
+		&input.injected,
+		core.Event(core.Mouse_Button_Event{button = button, down = down, pos = pos}),
+	)
+}
+
+// Queue a scroll of `delta` (positive Y = up) at the pointer's current position.
+inject_scroll :: proc(delta: Vec2) {
+	pos := inject_pointer()
+	input.inject_pos = pos
+	append(&input.injected, core.Event(core.Mouse_Scroll_Event{delta = delta, pos = pos}))
+}
+
+// Where the pointer will be once the events queued so far have been applied.
+@(private = "file")
+inject_pointer :: proc() -> Vec2 {
+	return len(input.injected) == 0 ? input.mouse_pos : input.inject_pos
 }

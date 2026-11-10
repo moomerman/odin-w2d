@@ -10,27 +10,30 @@ import "backend"
 
 @(private = "package")
 Context :: struct {
-	window:          Window_Backend,
-	renderer:        Render_Backend,
-	audio:           Audio_Backend,
-	gamepad:         Gamepad_Backend,
-	initialized:     bool,
-	init_proc:       proc(),
-	frame_proc:      proc(dt: f32),
-	shutdown_proc:   proc(),
-	init_called:     bool,
+	window:           Window_Backend,
+	renderer:         Render_Backend,
+	audio:            Audio_Backend,
+	gamepad:          Gamepad_Backend,
+	initialized:      bool,
+	init_proc:        proc(),
+	frame_proc:       proc(dt: f32),
+	shutdown_proc:    proc(),
+	init_called:      bool,
+	quit_requested:   bool,
+	headless:         bool,
 
 	// Timing
-	start_time:      time.Time,
-	prev_frame_time: time.Time,
-	frame_time:      f32, // seconds since last frame
-	elapsed_time:    f64, // seconds since init
+	start_time:       time.Time,
+	prev_frame_time:  time.Time,
+	frame_time:       f32, // seconds since last frame
+	fixed_frame_time: f32, // > 0: every frame reports exactly this dt (headless)
+	elapsed_time:     f64, // seconds since init
 
 	// Camera
-	camera:          Maybe(Camera),
+	camera:           Maybe(Camera),
 
 	// Size of the active render texture, or nil when drawing to the window.
-	target_size:     Maybe([2]int),
+	target_size:      Maybe([2]int),
 }
 
 @(private = "package")
@@ -43,11 +46,51 @@ ctx: Context
 // Initialize the engine. The platform layer selects the appropriate
 // window and renderer backends automatically.
 init :: proc(width: int, height: int, title: string) {
-	defaults := backend.default()
-	ctx.window = defaults.window
-	ctx.renderer = defaults.renderer
-	ctx.audio = defaults.audio
-	ctx.gamepad = defaults.gamepad
+	init_with_backends(backend.default(), width, height, title)
+}
+
+// Initialize the engine with no window, for tests and CI. Drawing goes to
+// an offscreen target the size of the "window", so read_pixels,
+// save_screenshot and render textures work as usual; nothing is shown and
+// frames run as fast as they are drawn. Desktop only.
+//
+// `scale` stands in for a HiDPI backing scale: the framebuffer is
+// width*scale by height*scale pixels while drawing coordinates stay
+// width by height.
+//
+// `frame_time` is the dt every frame reports (and get_time advances by), so
+// runs are deterministic whatever the machine's speed. Pass 0 for real time.
+//
+// There is no close button and no OS input: end the run with quit(), and
+// drive input with the inject_* procs.
+init_headless :: proc(width: int, height: int, scale: f32 = 1, frame_time: f32 = 1.0 / 60.0) {
+	ctx.headless = true
+	ctx.fixed_frame_time = frame_time
+	init_with_backends(backend.headless(scale), width, height, "")
+}
+
+// Resize the headless window, as a user dragging a window edge would. Takes
+// effect immediately; call it between frames (outside clear/present).
+// No effect unless the engine was started with init_headless.
+set_headless_size :: proc(width: int, height: int) {
+	if ctx.headless {
+		backend.headless_resize(width, height)
+	}
+}
+
+// Ask the run loop to stop. The current frame finishes, then shutdown_proc
+// and the engine's own cleanup run and `run` returns (desktop) or the frame
+// loop stops (web).
+quit :: proc() {
+	ctx.quit_requested = true
+}
+
+@(private = "file")
+init_with_backends :: proc(backends: backend.Backends, width: int, height: int, title: string) {
+	ctx.window = backends.window
+	ctx.renderer = backends.renderer
+	ctx.audio = backends.audio
+	ctx.gamepad = backends.gamepad
 
 	ctx.window.init(width, height, title, on_window_resize)
 	// The gamepad backend is opt-in (see init_gamepad) so it stays off the
@@ -173,6 +216,7 @@ engine_shutdown :: proc() {
 	}
 	text_shutdown()
 	assets_shutdown()
+	input_shutdown()
 	ctx.renderer.shutdown()
 	ctx.window.shutdown()
 	ctx.initialized = false
@@ -181,6 +225,16 @@ engine_shutdown :: proc() {
 // Calculate frame timing. Called internally before each frame callback.
 @(private = "package")
 calculate_frame_time :: proc() {
+	if ctx.fixed_frame_time > 0 {
+		// The first frame reports 0, like the real-time path.
+		if ctx.prev_frame_time != {} {
+			ctx.frame_time = ctx.fixed_frame_time
+			ctx.elapsed_time += f64(ctx.fixed_frame_time)
+		}
+		ctx.prev_frame_time = time.now()
+		return
+	}
+
 	now := time.now()
 
 	if ctx.prev_frame_time != {} {

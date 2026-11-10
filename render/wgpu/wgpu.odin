@@ -429,7 +429,11 @@ renderer_on_device_ready :: proc() {
 	// readback is not implemented on web.
 	usage := wgpu.TextureUsageFlags{.RenderAttachment}
 	when ODIN_OS != .JS {
-		if caps, status := wgpu.SurfaceGetCapabilities(r.surface, r.adapter); status == .Success {
+		// A nil surface is the null window backend (headless): every frame
+		// draws into the offscreen target and nothing is configured.
+		if r.surface == nil {
+		} else if caps, status := wgpu.SurfaceGetCapabilities(r.surface, r.adapter);
+		   status == .Success {
 			if .CopySrc in caps.usages {
 				usage += {.CopySrc}
 				r.surface_copy_src = true
@@ -450,7 +454,7 @@ renderer_on_device_ready :: proc() {
 		presentMode = present_mode_for(r.vsync),
 		alphaMode   = .Opaque,
 	}
-	wgpu.SurfaceConfigure(r.surface, &r.config)
+	configure_surface()
 
 	// Create shader module
 	r.shader_module = wgpu.DeviceCreateShaderModule(
@@ -625,7 +629,7 @@ renderer_resize :: proc() {
 
 	r.config.width = r.width
 	r.config.height = r.height
-	wgpu.SurfaceConfigure(r.surface, &r.config)
+	configure_surface()
 	renderer_update_projection()
 }
 
@@ -651,6 +655,16 @@ apply_present_mode :: proc() {
 	mode := present_mode_for(r.vsync)
 	if mode != r.config.presentMode {
 		r.config.presentMode = mode
+		configure_surface()
+	}
+}
+
+// Apply r.config to the surface. Headless (nil surface) there is nothing to
+// configure; r.config still describes the offscreen target's size and format.
+@(private = "file")
+configure_surface :: proc() {
+	r := &renderer
+	if r.surface != nil {
 		wgpu.SurfaceConfigure(r.surface, &r.config)
 	}
 }

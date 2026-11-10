@@ -13,7 +13,7 @@ platform_run :: proc() {
 		pool := _autorelease_pool_begin()
 		defer _autorelease_pool_end(pool)
 
-		if !ctx.window.poll_events() {
+		if !ctx.window.poll_events() || ctx.quit_requested {
 			break
 		}
 		if ctx.renderer.is_initialized() {

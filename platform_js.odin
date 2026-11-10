@@ -25,6 +25,15 @@ step :: proc(dt: f32) -> bool {
 		return true
 	}
 
+	// quit(): shut down once and return false so the runtime stops calling.
+	if ctx.quit_requested {
+		if ctx.shutdown_proc != nil {
+			ctx.shutdown_proc()
+		}
+		engine_shutdown()
+		return false
+	}
+
 	if ctx.renderer.is_initialized() {
 		if !ctx.init_called {
 			if ctx.init_proc != nil {
@@ -49,6 +58,9 @@ step :: proc(dt: f32) -> bool {
 @(fini)
 js_fini :: proc "contextless" () {
 	context = js_ctx
+	if !ctx.initialized {
+		return // already shut down by quit()
+	}
 	if ctx.shutdown_proc != nil {
 		ctx.shutdown_proc()
 	}
