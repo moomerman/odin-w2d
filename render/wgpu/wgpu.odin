@@ -3,6 +3,7 @@ package renderer_wgpu
 import "base:runtime"
 import hm "core:container/handle_map"
 import "core:fmt"
+import "core:math"
 import "core:math/linalg"
 import "core:time"
 import "vendor:wgpu"
@@ -174,6 +175,12 @@ Frame_State :: struct {
 	offscreen:        bool,
 	// Render texture the current pass draws into, or nil for the screen.
 	target:           Maybe(core.Texture_Handle),
+	// Pixel size of this frame's screen attachment (surface or offscreen
+	// texture) and of the current pass's attachment, for scissor clamping.
+	surface_w:        u32,
+	surface_h:        u32,
+	target_w:         u32,
+	target_h:         u32,
 
 	// Bind groups created this frame — released after submit, not mid-pass.
 	bind_groups:      [MAX_BIND_GROUPS_PER_FRAME]wgpu.BindGroup,
@@ -276,6 +283,9 @@ Renderer :: struct {
 
 	// Active scissor rect in logical pixels, or nil for full viewport.
 	scissor_rect:         Maybe(core.Rect),
+	// The scissor rect lies entirely outside the current target (or has no
+	// area): flushes discard their quads instead of drawing.
+	scissor_empty:        bool,
 
 	// Optional callback invoked after engine flush, before render pass ends.
 	pre_present_callback: proc(pass: rawptr, width, height: u32),
@@ -805,8 +815,11 @@ renderer_set_scissor_rect :: proc(rect: Maybe(core.Rect)) {
 	apply_scissor_rect()
 }
 
-// Apply the current scissor state to the render pass.
-// Converts logical pixels to physical pixels and clamps to framebuffer bounds.
+// Apply the current scissor state to the render pass. Converts logical
+// pixels to the current target's pixels — the window's DPI scale for the
+// screen, 1:1 for a render texture — and intersects with its bounds. A rect
+// with nothing left (off the target, or zero/negative size) can't be given
+// to wgpu, so it sets scissor_empty and the pass's scissor is left as is.
 @(private = "package")
 apply_scissor_rect :: proc() {
 	r := &renderer
@@ -814,24 +827,41 @@ apply_scissor_rect :: proc() {
 		return
 	}
 
-	if sr, ok := r.scissor_rect.?; ok {
-		lw, lh := r.window.get_window_size()
-		scale_x := f32(r.width) / f32(lw)
-		scale_y := f32(r.height) / f32(lh)
-
-		px := u32(sr.x * scale_x)
-		py := u32(sr.y * scale_y)
-		pw := u32(sr.w * scale_x)
-		ph := u32(sr.h * scale_y)
-
-		// Clamp to framebuffer bounds to avoid wgpu validation errors.
-		if px + pw > r.width {pw = r.width - px}
-		if py + ph > r.height {ph = r.height - py}
-
-		wgpu.RenderPassEncoderSetScissorRect(r.frame.pass, px, py, pw, ph)
-	} else {
-		wgpu.RenderPassEncoderSetScissorRect(r.frame.pass, 0, 0, r.width, r.height)
+	tw, th := r.frame.target_w, r.frame.target_h
+	r.scissor_empty = false
+	sr, ok := r.scissor_rect.?
+	if !ok {
+		wgpu.RenderPassEncoderSetScissorRect(r.frame.pass, 0, 0, tw, th)
+		return
 	}
+
+	scale_x, scale_y: f32 = 1, 1
+	if r.frame.target == nil {
+		lw, lh := r.window.get_window_size()
+		if lw > 0 && lh > 0 {
+			scale_x = f32(tw) / f32(lw)
+			scale_y = f32(th) / f32(lh)
+		}
+	}
+
+	// Clamp the edges in float space, so negative or huge values can't
+	// wrap when converted to u32.
+	x0 := clamp(math.round(sr.x * scale_x), 0, f32(tw))
+	y0 := clamp(math.round(sr.y * scale_y), 0, f32(th))
+	x1 := clamp(math.round((sr.x + sr.w) * scale_x), 0, f32(tw))
+	y1 := clamp(math.round((sr.y + sr.h) * scale_y), 0, f32(th))
+	if !(x1 > x0 && y1 > y0) {
+		r.scissor_empty = true
+		return
+	}
+
+	wgpu.RenderPassEncoderSetScissorRect(
+		r.frame.pass,
+		u32(x0),
+		u32(y0),
+		u32(x1) - u32(x0),
+		u32(y1) - u32(y0),
+	)
 }
 
 @(private = "file")

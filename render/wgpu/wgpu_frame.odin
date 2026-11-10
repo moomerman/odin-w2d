@@ -89,7 +89,12 @@ renderer_begin_frame :: proc(color: core.Color) -> bool {
 	if r.frame.offscreen {
 		r.frame.surface_tex.texture = nil
 		r.frame.view = offscreen_view()
+		r.frame.surface_w, r.frame.surface_h = r.offscreen_w, r.offscreen_h
+	} else {
+		r.frame.surface_w = wgpu.TextureGetWidth(r.frame.surface_tex.texture)
+		r.frame.surface_h = wgpu.TextureGetHeight(r.frame.surface_tex.texture)
 	}
+	r.frame.target_w, r.frame.target_h = r.frame.surface_w, r.frame.surface_h
 
 	r.frame.encoder = wgpu.DeviceCreateCommandEncoder(r.device, nil)
 
@@ -112,6 +117,7 @@ renderer_begin_frame :: proc(color: core.Color) -> bool {
 	r.frame.active = true
 	r.frame.target = nil
 	r.scissor_rect = nil
+	r.scissor_empty = false
 	return true
 }
 
@@ -120,6 +126,11 @@ renderer_begin_frame :: proc(color: core.Color) -> bool {
 renderer_flush :: proc() {
 	r := &renderer
 	if r.batch.vertex_count == 0 || !r.frame.active {
+		return
+	}
+	// The scissor rect covers none of the target: nothing can be drawn.
+	if r.scissor_empty {
+		r.batch.vertex_count = 0
 		return
 	}
 
@@ -267,9 +278,11 @@ renderer_set_render_target :: proc(
 		target_view = entry.view
 		target_w = u32(entry.width)
 		target_h = u32(entry.height)
+		r.frame.target_w, r.frame.target_h = target_w, target_h
 	} else {
 		target_view = r.frame.view
 		target_w, target_h = r.window.get_window_size()
+		r.frame.target_w, r.frame.target_h = r.frame.surface_w, r.frame.surface_h
 	}
 
 	// Choose load op: Clear if a clear color was given, Load to preserve contents.
@@ -322,6 +335,7 @@ renderer_set_render_target :: proc(
 
 	// Reset scissor — the new pass defaults to full viewport.
 	r.scissor_rect = nil
+	r.scissor_empty = false
 }
 
 // End the current frame: flush, end render pass, submit, present.
@@ -335,9 +349,16 @@ renderer_present :: proc() {
 	renderer_flush()
 
 	if r.pre_present_callback != nil {
-		// Reset scissor so custom renderers draw to the full viewport.
+		// Reset scissor so custom renderers draw to the full viewport (of
+		// the current target, which may be a render texture).
 		if r.scissor_rect != nil {
-			wgpu.RenderPassEncoderSetScissorRect(r.frame.pass, 0, 0, r.width, r.height)
+			wgpu.RenderPassEncoderSetScissorRect(
+				r.frame.pass,
+				0,
+				0,
+				r.frame.target_w,
+				r.frame.target_h,
+			)
 		}
 		lw, lh := r.window.get_window_size()
 		r.pre_present_callback(r.frame.pass, lw, lh)
