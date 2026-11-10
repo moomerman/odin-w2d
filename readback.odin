@@ -18,8 +18,10 @@ read_pixels :: proc(
 }
 
 // Read back a render texture's contents as tightly packed RGBA8, row 0 at
-// the top. Works inside a frame (after drawing into it) or between frames.
-// Stalls like read_pixels. Desktop only; on js returns ok = false.
+// the top, with straight alpha (the form load_texture and image files use;
+// the texture itself holds premultiplied colour). Works inside a frame
+// (after drawing into it) or between frames. Stalls like read_pixels.
+// Desktop only; on js returns ok = false.
 read_render_texture :: proc(
 	rt: Render_Texture,
 	allocator := context.allocator,
@@ -28,5 +30,9 @@ read_render_texture :: proc(
 	width, height: int,
 	ok: bool,
 ) {
-	return ctx.renderer.read_texture(rt.texture.handle, allocator)
+	pixels, width, height, ok = ctx.renderer.read_texture(rt.texture.handle, allocator)
+	if ok {
+		unpremultiply_alpha(pixels)
+	}
+	return
 }

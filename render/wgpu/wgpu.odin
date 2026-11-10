@@ -894,27 +894,23 @@ blend_state :: proc(mode: core.Blend_Mode) -> wgpu.BlendState {
 	component :: proc(src, dst: wgpu.BlendFactor) -> wgpu.BlendComponent {
 		return {srcFactor = src, dstFactor = dst, operation = .Add}
 	}
+	// Source colour is premultiplied by alpha (see core.Blend_Mode), so no
+	// mode multiplies by SrcAlpha again.
 	switch mode {
 	case .Alpha:
-		// Destination alpha accumulates coverage (src_a + dst_a * (1 - src_a)),
-		// so drawing onto a transparent render texture leaves alpha = src_a
-		// rather than src_a².
-		return {
-			color = component(.SrcAlpha, .OneMinusSrcAlpha),
-			alpha = component(.One, .OneMinusSrcAlpha),
-		}
-	case .Additive:
-		return {color = component(.SrcAlpha, .One), alpha = component(.SrcAlpha, .One)}
-	case .Multiply:
-		return {
-			color = component(.Dst, .OneMinusSrcAlpha),
-			alpha = component(.DstAlpha, .OneMinusSrcAlpha),
-		}
-	case .Premultiplied_Alpha:
+		// src + dst*(1-a) for colour and alpha alike: destination alpha
+		// accumulates coverage, so a render texture composites correctly.
 		return {
 			color = component(.One, .OneMinusSrcAlpha),
 			alpha = component(.One, .OneMinusSrcAlpha),
 		}
+	case .Additive:
+		// Adds light without adding coverage: drawn into a transparent render
+		// texture it still adds (rather than occludes) when composited.
+		return {color = component(.One, .One), alpha = component(.Zero, .One)}
+	case .Multiply:
+		// dst * lerp(1, src_straight, a); destination alpha unchanged.
+		return {color = component(.Dst, .OneMinusSrcAlpha), alpha = component(.Zero, .One)}
 	}
 	return {}
 }

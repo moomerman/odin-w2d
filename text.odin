@@ -233,7 +233,8 @@ _update_font :: proc(fd: ^Font_Data) {
 		return
 	}
 
-	// Expand single-channel atlas data to RGBA for the dirty region.
+	// Expand single-channel atlas coverage to premultiplied white (a, a, a, a)
+	// for the dirty region.
 	// Reuse the persistent staging buffer, growing only when needed.
 	needed := dw * dh * 4
 	resize(&text_state.rgba_buf, needed)
@@ -243,9 +244,9 @@ _update_font :: proc(fd: ^Font_Data) {
 			src_idx := (dy + row) * fs.width + (dx + col)
 			alpha := fs.textureData[src_idx]
 			dst_idx := (row * dw + col) * 4
-			text_state.rgba_buf[dst_idx + 0] = 255
-			text_state.rgba_buf[dst_idx + 1] = 255
-			text_state.rgba_buf[dst_idx + 2] = 255
+			text_state.rgba_buf[dst_idx + 0] = alpha
+			text_state.rgba_buf[dst_idx + 1] = alpha
+			text_state.rgba_buf[dst_idx + 2] = alpha
 			text_state.rgba_buf[dst_idx + 3] = alpha
 		}
 	}

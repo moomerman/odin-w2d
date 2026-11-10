@@ -512,10 +512,12 @@ prepare_quad :: proc(tex_handle: core.Texture_Handle) -> ^Renderer {
 	return r
 }
 
-// Convert Color ([4]u8) to four f32 components.
+// Convert a straight-alpha Color ([4]u8) to four premultiplied f32 components.
 @(private = "file")
 color_to_f32 :: proc(c: core.Color) -> (r, g, b, a: f32) {
-	return f32(c[0]) / 255.0, f32(c[1]) / 255.0, f32(c[2]) / 255.0, f32(c[3]) / 255.0
+	a = f32(c[3]) / 255.0
+	k := a / 255.0
+	return f32(c[0]) * k, f32(c[1]) * k, f32(c[2]) * k, a
 }
 
 @(private = "file")
@@ -575,10 +577,13 @@ bind_texture :: proc(tex_view: wgpu.TextureView) {
 	r.frame.bind_group_cache[key] = r.batch.bind_group
 }
 
-// Helper to convert Color ([4]u8) to [4]f64 for wgpu clear values.
+// Convert a straight-alpha Color ([4]u8) to a premultiplied [4]f64 for wgpu
+// clear values.
 @(private = "file")
 color_to_f64 :: proc(c: core.Color) -> [4]f64 {
-	return {f64(c[0]) / 255.0, f64(c[1]) / 255.0, f64(c[2]) / 255.0, f64(c[3]) / 255.0}
+	a := f64(c[3]) / 255.0
+	k := a / 255.0
+	return {f64(c[0]) * k, f64(c[1]) * k, f64(c[2]) * k, a}
 }
 
 //-----------//

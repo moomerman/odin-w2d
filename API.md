@@ -25,11 +25,11 @@ Render_Texture :: struct {
     texture: Texture,
 }
 
+// src is the drawn colour already multiplied by its alpha a (see Colour and Alpha).
 Blend_Mode :: enum {
-    Alpha,               // default: src*a + dst*(1-a)
-    Additive,            // src*a + dst — lights, particles, glow
-    Multiply,            // src*dst + dst*(1-a) — shadows, light-map compositing
-    Premultiplied_Alpha, // src + dst*(1-a)
+    Alpha,    // default: src + dst*(1-a)
+    Additive, // src + dst, coverage unchanged — lights, particles, glow
+    Multiply, // src*dst + dst*(1-a) — shadows, light-map compositing
 }
 
 Camera :: struct {
@@ -280,7 +280,24 @@ transform_point :: proc(t: Transform, p: Vec2) -> Vec2
 transform_inverse :: proc(t: Transform) -> Transform        // e.g. mouse → local space
 ```
 
+## Colour and Alpha
+
+Everything you pass in or read back uses ordinary straight alpha: `Color`
+values, tints, texture pixels, image files, clear colours and
+`read_render_texture` results. Internally the renderer works in
+premultiplied alpha (RGB already scaled by A), which the engine converts to
+at the boundary. The practical effects:
+
+- A render texture holding translucent content composites exactly as if the
+  content had been drawn directly; just draw it with the default blend mode.
+- Gradients and tints that fade to transparent keep their hue.
+- `.Additive` adds light without adding coverage, so a glow drawn into a
+  transparent render texture still adds when that texture is drawn.
+- Custom shaders see premultiplied colour and must return it (see Shaders).
+
 ## Textures
+
+Pixels are straight-alpha RGBA8, for both encoded images and raw data.
 
 ```odin
 load_texture :: proc(bytes: []u8, width: int = 0, height: int = 0) -> Texture
@@ -321,7 +338,7 @@ loop is held to about 60 frames a second meanwhile). With `set_vsync(false)`
 most frames are offscreen too, and read back the same way. `read_pixels`
 returns `ok = false` only when the frame was skipped for a lost or resized
 surface, so retry next frame. `read_render_texture` works inside a frame
-or between frames.
+or between frames, and returns straight alpha.
 
 ```odin
 read_pixels :: proc(allocator := context.allocator) -> (pixels: []u8, width, height: int, ok: bool)
@@ -349,6 +366,13 @@ Variable fonts (e.g. `Oxanium[wght].ttf`) render at their default instance;
 there is no weight selection. Ship static instances for other weights.
 
 ## Shaders
+
+In a custom shader the vertex colour and every texture sample are
+premultiplied by alpha, and the fragment shader must return premultiplied
+colour. `textureSample(...) * in.color` and scaling the whole `vec4` are
+already correct. To operate on the true colour (a LUT, a hue shift), divide
+`rgb` by `a` first and multiply back afterwards; `examples/shader/lut.wgsl`
+shows this.
 
 ```odin
 // ok is optional. A shader that fails to compile logs the error and returns

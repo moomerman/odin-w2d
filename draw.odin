@@ -249,10 +249,14 @@ rotate_vec2 :: proc(v: Vec2, angle: f32) -> Vec2 {
 // 2. Raw RGBA8 pixel data — pass the pixels and specify dimensions:
 //      tex = engine.load_texture(pixels[:], 16, 16)
 //
+// Either way the pixels are ordinary straight-alpha RGBA, as image files
+// store them; the engine premultiplies them for the GPU.
 load_texture :: proc(bytes: []u8, width: int = 0, height: int = 0) -> Texture {
 	if width > 0 && height > 0 {
-		// Raw RGBA8 pixel data.
-		handle := ctx.renderer.create_texture(bytes, width, height)
+		// Raw RGBA8 pixel data. Premultiply a copy: the caller keeps theirs.
+		pixels := premultiplied_copy(bytes)
+		defer delete(pixels)
+		handle := ctx.renderer.create_texture(pixels, width, height)
 		return Texture{handle = handle, width = width, height = height}
 	}
 
@@ -262,12 +266,13 @@ load_texture :: proc(bytes: []u8, width: int = 0, height: int = 0) -> Texture {
 	}
 	defer image.destroy(img)
 
+	premultiply_alpha(img.pixels[:])
 	handle := ctx.renderer.create_texture(img.pixels[:], img.width, img.height)
 	return Texture{handle = handle, width = img.width, height = img.height}
 }
 
-// Decode an encoded image (PNG/BMP/TGA) into RGBA8. The caller owns the
-// result and must free it with image.destroy.
+// Decode an encoded image (PNG/BMP/TGA) into straight-alpha RGBA8. The
+// caller owns the result and must free it with image.destroy.
 @(private = "package")
 decode_image :: proc(bytes: []u8) -> (img: ^image.Image, err: image.Error) {
 	return image.load_from_bytes(bytes, {.alpha_add_if_missing})
@@ -315,9 +320,60 @@ draw_stats :: proc() {
 	draw_text(stats_text, {padding + 14, screen_h - bar_height + padding}, font_size, LIGHT_GRAY)
 }
 
-// Update a sub-region of an existing texture with new RGBA8 pixel data.
+// Update a sub-region of an existing texture with new RGBA8 pixel data
+// (straight alpha, like load_texture).
 update_texture :: proc(tex: Texture, data: []u8, x, y, width, height: int) {
-	ctx.renderer.update_texture(tex.handle, data, x, y, width, height)
+	pixels := premultiplied_copy(data)
+	defer delete(pixels)
+	ctx.renderer.update_texture(tex.handle, pixels, x, y, width, height)
+}
+
+// --- Premultiplied alpha --------------------------------------------------------
+// The public API speaks straight alpha (Color values, texture pixels,
+// readback); the renderer works in premultiplied alpha, where RGB is already
+// scaled by A. That is what makes blending, filtering and render-texture
+// compositing come out right. These helpers convert RGBA8 at the boundary.
+
+// Multiply RGB by alpha in place, rounding to nearest.
+@(private = "package")
+premultiply_alpha :: proc(pixels: []u8) {
+	for i := 0; i + 3 < len(pixels); i += 4 {
+		a := u32(pixels[i + 3])
+		if a == 255 {
+			continue
+		}
+		pixels[i + 0] = u8((u32(pixels[i + 0]) * a + 127) / 255)
+		pixels[i + 1] = u8((u32(pixels[i + 1]) * a + 127) / 255)
+		pixels[i + 2] = u8((u32(pixels[i + 2]) * a + 127) / 255)
+	}
+}
+
+@(private = "package")
+premultiplied_copy :: proc(pixels: []u8) -> []u8 {
+	out := make([]u8, len(pixels))
+	copy(out, pixels)
+	premultiply_alpha(out)
+	return out
+}
+
+// Divide RGB by alpha in place (the inverse of premultiply_alpha, exact for
+// opaque pixels and within rounding elsewhere). Fully transparent pixels
+// carry no colour and come out as zero.
+@(private = "package")
+unpremultiply_alpha :: proc(pixels: []u8) {
+	for i := 0; i + 3 < len(pixels); i += 4 {
+		a := u32(pixels[i + 3])
+		if a == 255 {
+			continue
+		}
+		if a == 0 {
+			pixels[i + 0], pixels[i + 1], pixels[i + 2] = 0, 0, 0
+			continue
+		}
+		pixels[i + 0] = u8(min((u32(pixels[i + 0]) * 255 + a / 2) / a, 255))
+		pixels[i + 1] = u8(min((u32(pixels[i + 1]) * 255 + a / 2) / a, 255))
+		pixels[i + 2] = u8(min((u32(pixels[i + 2]) * 255 + a / 2) / a, 255))
+	}
 }
 
 // Destroy a texture and free its GPU resources.

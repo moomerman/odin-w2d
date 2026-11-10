@@ -43,7 +43,12 @@ tests := []Test {
 	{name = "uniform_buffer_growth", run = test_uniform_buffer_growth},
 	{name = "uniform_type_conversion", run = test_uniform_type_conversion},
 	{name = "many_quads", run = test_many_quads},
-	{name = "render_texture_alpha", run = test_render_texture_alpha},
+	{name = "alpha_render_texture_compositing", run = test_alpha_render_texture_compositing},
+	{name = "alpha_texture_pixels", run = test_alpha_texture_pixels},
+	{name = "alpha_gradient_to_transparent", run = test_alpha_gradient_to_transparent},
+	{name = "alpha_readback_is_straight", run = test_alpha_readback_is_straight},
+	{name = "blend_additive", run = test_blend_additive},
+	{name = "blend_multiply", run = test_blend_multiply},
 	{name = "scissor_clips", run = test_scissor_clips},
 	{name = "scissor_out_of_bounds", run = test_scissor_out_of_bounds},
 	{name = "scissor_render_texture", run = test_scissor_render_texture},
@@ -348,16 +353,128 @@ test_many_quads :: proc(step: int) -> bool {
 	return true
 }
 
-// Alpha blending onto a transparent render texture leaves coverage alpha.
-test_render_texture_alpha :: proc(step: int) -> bool {
+// The renderer works in premultiplied alpha, so translucent content drawn
+// into a transparent render texture and then composited looks exactly like
+// the same content drawn directly.
+test_alpha_render_texture_compositing :: proc(step: int) -> bool {
+	HALF_RED :: w.Color{255, 0, 0, 128}
+	w.draw_rect({0, 0, WIDTH, HEIGHT}, w.WHITE)
+	w.draw_rect({10, 10, 50, 50}, HALF_RED)
+
 	w.set_render_texture(small_rt, w.BLANK)
-	w.draw_rect({0, 0, 16, 16}, w.Color{255, 255, 255, 128})
+	w.draw_rect({0, 0, 16, 16}, HALF_RED)
+	w.reset_render_texture()
+	w.draw_texture_rect(small_rt.texture, {0, 0, 16, 16}, {110, 10, 50, 50})
+	// Tinting a render texture with a translucent colour fades it further.
+	w.draw_texture_rect(small_rt.texture, {0, 0, 16, 16}, {210, 10, 50, 50}, {255, 255, 255, 128})
+
+	s := snap()
+	expect_color(at(s, 35, 35), {255, 127, 127, 255}, "50% red on white, drawn directly", 1)
+	expect_color(at(s, 135, 35), at(s, 35, 35), "same via a render texture", 1)
+	expect_color(at(s, 235, 35), {255, 191, 191, 255}, "render texture at 50% tint", 2)
+	return true
+}
+
+// Texture pixels are given with straight alpha (as image files store them).
+test_alpha_texture_pixels :: proc(step: int) -> bool {
+	pixels := [8]u8{255, 0, 0, 128, 0, 255, 0, 255}
+	tex := w.load_texture(pixels[:], 2, 1)
+	defer w.destroy_texture(&tex)
+	if step == 1 {
+		// update_texture takes straight alpha too.
+		blue := [4]u8{0, 0, 255, 128}
+		w.update_texture(tex, blue[:], 0, 0, 1, 1)
+	}
+
+	w.draw_rect({0, 0, 100, 100}, w.WHITE)
+	w.draw_texture_rect(tex, {0, 0, 2, 1}, {0, 0, 100, 50})
+	w.draw_texture_rect(tex, {0, 0, 2, 1}, {200, 0, 100, 50})
+	s := snap()
+	if step == 0 {
+		expect_color(at(s, 25, 25), {255, 127, 127, 255}, "50% red texel on white", 1)
+		expect_color(at(s, 225, 25), {128, 0, 0, 255}, "50% red texel on black", 1)
+	} else {
+		expect_color(at(s, 25, 25), {127, 127, 255, 255}, "updated 50% blue texel on white", 1)
+	}
+	expect_color(at(s, 75, 25), {0, 255, 0, 255}, "opaque green texel")
+	return step == 1
+}
+
+// Per-vertex colours interpolate in premultiplied space: a fade to BLANK
+// keeps its hue instead of darkening on the way.
+test_alpha_gradient_to_transparent :: proc(step: int) -> bool {
+	w.draw_rect({0, 0, WIDTH, HEIGHT}, w.WHITE)
+	w.draw_rect_gradient_h({0, 100, 200, 20}, {255, 0, 0, 255}, w.BLANK)
+	s := snap()
+	expect_color(
+		at(s, 100, 110),
+		{255, 128, 128, 255},
+		"midpoint of red-to-transparent on white",
+		3,
+	)
+	expect_color(at(s, 2, 110), {255, 3, 3, 255}, "opaque end", 4)
+	expect_color(at(s, 198, 110), {255, 252, 252, 255}, "transparent end", 4)
+	return true
+}
+
+// read_render_texture returns straight alpha, the form load_texture takes.
+test_alpha_readback_is_straight :: proc(step: int) -> bool {
+	if step == 0 {
+		w.set_render_texture(small_rt, w.BLANK)
+		w.draw_rect({0, 0, 16, 16}, w.Color{255, 255, 255, 128})
+	} else {
+		w.set_render_texture(small_rt, w.Color{255, 0, 0, 128}) // translucent clear colour
+	}
 	w.reset_render_texture()
 	p, _, _, ok := w.read_render_texture(small_rt, context.temp_allocator)
 	expect(ok, "read_render_texture ok")
 	if ok {
-		expect_color({p[0], p[1], p[2], p[3]}, {128, 128, 128, 128}, "50% white on clear", 1)
+		got := w.Color{p[0], p[1], p[2], p[3]}
+		if step == 0 {
+			expect_color(got, {255, 255, 255, 128}, "50% white drawn on clear", 1)
+		} else {
+			expect_color(got, {255, 0, 0, 128}, "cleared to 50% red", 1)
+		}
 	}
+	return step == 1
+}
+
+// Additive adds colour scaled by alpha and never changes coverage, so
+// additive drawing into a transparent render texture still adds when the
+// texture is composited.
+test_blend_additive :: proc(step: int) -> bool {
+	w.draw_rect({0, 0, WIDTH, HEIGHT}, {0, 0, 255, 255})
+	w.set_blend_mode(.Additive)
+	w.draw_rect({0, 0, 50, 50}, {255, 0, 0, 255})
+	w.draw_rect({100, 0, 50, 50}, {255, 0, 0, 128})
+	w.reset_blend_mode()
+
+	w.set_render_texture(small_rt, w.BLANK)
+	w.set_blend_mode(.Additive)
+	w.draw_rect({0, 0, 16, 16}, {255, 0, 0, 128})
+	w.reset_blend_mode()
+	w.reset_render_texture()
+	w.draw_texture_rect(small_rt.texture, {0, 0, 16, 16}, {200, 0, 50, 50})
+
+	s := snap()
+	expect_color(at(s, 25, 25), {255, 0, 255, 255}, "opaque red added to blue")
+	expect_color(at(s, 125, 25), {128, 0, 255, 255}, "50% red added to blue", 1)
+	expect_color(at(s, 225, 25), {128, 0, 255, 255}, "additive glow via a render texture", 1)
+	return true
+}
+
+// Multiply darkens by the source colour, in proportion to its alpha.
+test_blend_multiply :: proc(step: int) -> bool {
+	w.draw_rect({0, 0, WIDTH, HEIGHT}, {200, 200, 200, 255})
+	w.set_blend_mode(.Multiply)
+	w.draw_rect({0, 0, 50, 50}, {128, 128, 128, 255})
+	w.draw_rect({100, 0, 50, 50}, {0, 0, 0, 0})
+	w.draw_rect({200, 0, 50, 50}, {0, 0, 0, 128})
+	w.reset_blend_mode()
+	s := snap()
+	expect_color(at(s, 25, 25), {100, 100, 100, 255}, "200 x 50% grey", 1)
+	expect_color(at(s, 125, 25), {200, 200, 200, 255}, "fully transparent source leaves it alone")
+	expect_color(at(s, 225, 25), {100, 100, 100, 255}, "50% black halves it", 1)
 	return true
 }
 

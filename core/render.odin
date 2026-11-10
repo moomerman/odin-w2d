@@ -25,11 +25,16 @@ Render_Texture :: struct {
 // How drawn pixels combine with what is already in the render target.
 // Alpha is the default. Additive suits lights, particles and glow;
 // Multiply suits shadows and light-map compositing.
+//
+// The renderer works in premultiplied alpha: texture data and vertex colours
+// reach the shader with RGB already multiplied by alpha, and shaders output
+// premultiplied colour. `src` below is that premultiplied colour, `a` its
+// alpha. (The public API takes straight-alpha colours and pixels; they are
+// premultiplied on the way in.)
 Blend_Mode :: enum {
-	Alpha, // src*a + dst*(1-a)
-	Additive, // src*a + dst
-	Multiply, // src*dst + dst*(1-a)
-	Premultiplied_Alpha, // src + dst*(1-a)
+	Alpha, // src + dst*(1-a)
+	Additive, // src + dst; coverage (dst alpha) is left unchanged
+	Multiply, // src*dst + dst*(1-a); dst alpha is left unchanged
 }
 
 // Render_Backend abstracts over different rendering implementations.
@@ -59,7 +64,8 @@ Render_Backend :: struct {
 	// Flush all batched vertices to the GPU.
 	flush:                    proc(),
 
-	// Push a textured quad into the current batch.
+	// Push a textured quad into the current batch. Colours in the push_quad
+	// procs are straight alpha; the backend premultiplies them.
 	push_quad:                proc(
 		dst: Rect,
 		src_uv: [4][2]f32,
@@ -84,7 +90,8 @@ Render_Backend :: struct {
 		colors: [4]Color,
 	),
 
-	// Create a texture from raw RGBA8 pixel data. Returns an opaque handle.
+	// Create a texture from raw RGBA8 pixel data with premultiplied alpha
+	// (as for update_texture and reload_texture). Returns an opaque handle.
 	create_texture:           proc(data: []u8, width, height: int) -> Texture_Handle,
 
 	// Create an empty texture (no initial pixel data). Used for atlases filled on demand.
@@ -141,8 +148,8 @@ Render_Backend :: struct {
 	create_render_texture:    proc(width, height: int) -> Texture_Handle,
 
 	// Set the render target. Pass a texture handle to draw into a render
-	// texture, or nil to draw to the screen. clear_color, when set, clears
-	// the target; when nil the existing contents are preserved.
+	// texture, or nil to draw to the screen. clear_color (straight alpha),
+	// when set, clears the target; when nil the existing contents are preserved.
 	set_render_target:        proc(target: Maybe(Texture_Handle), clear_color: Maybe(Color)),
 
 	// Return the underlying GPU device handle as a raw pointer.
@@ -190,7 +197,8 @@ Render_Backend :: struct {
 	),
 
 	// Read back a render texture's contents as tightly packed RGBA8, row 0
-	// at the top. Works inside or outside a frame; blocks until done.
+	// at the top, premultiplied as stored. Works inside or outside a frame;
+	// blocks until done.
 	read_texture:             proc(
 		handle: Texture_Handle,
 		allocator: runtime.Allocator,

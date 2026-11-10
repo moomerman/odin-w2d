@@ -157,9 +157,12 @@ Blend_Mode :: enum {
     Alpha,               // standard: src*alpha + dst*(1-alpha)
     Additive,            // src*alpha + dst
     Multiply,            // src*dst
-    Premultiplied_Alpha, // src + dst*(1-alpha)
 }
 ```
+
+(Since Nov 2026 the renderer is premultiplied end to end, so the separate
+`Premultiplied_Alpha` mode is gone: `.Alpha` is `src + dst*(1-a)` on
+premultiplied colour. See "Colour and Alpha" in `API.md`.)
 
 1. **`core/render.odin`** — `set_blend_mode: proc(mode: Blend_Mode)`.
 2. **`render/wgpu/wgpu.odin`** — create one pipeline per mode at init; track

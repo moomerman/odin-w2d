@@ -3,6 +3,12 @@ package engine
 // Load a custom shader from WGSL source.
 // Custom shaders must declare the same group 0 bindings as the engine
 // (projection, sampler, texture) and use group 1 for user uniforms.
+//
+// Colour is premultiplied by alpha throughout: the vertex colour and every
+// texture sample arrive with RGB already scaled by A, and the fragment
+// shader must return premultiplied colour too. `tex * in.color` and scaling
+// the whole vec4 are already correct; to work on the true colour (a LUT, a
+// hue shift) divide rgb by a first and multiply back afterwards.
 // If compilation fails the error is logged and ok is false, but the shader
 // is still usable: draws with it fall back to the default shader, and a
 // later hot-reload of fixed source brings it to life.
