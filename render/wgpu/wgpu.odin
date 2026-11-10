@@ -881,9 +881,12 @@ blend_state :: proc(mode: core.Blend_Mode) -> wgpu.BlendState {
 	}
 	switch mode {
 	case .Alpha:
+		// Destination alpha accumulates coverage (src_a + dst_a * (1 - src_a)),
+		// so drawing onto a transparent render texture leaves alpha = src_a
+		// rather than src_a².
 		return {
 			color = component(.SrcAlpha, .OneMinusSrcAlpha),
-			alpha = component(.SrcAlpha, .OneMinusSrcAlpha),
+			alpha = component(.One, .OneMinusSrcAlpha),
 		}
 	case .Additive:
 		return {color = component(.SrcAlpha, .One), alpha = component(.SrcAlpha, .One)}
