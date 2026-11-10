@@ -307,6 +307,12 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 draw_stats :: proc()
 ```
 
+`src` is in texture pixels. A negative `src` width flips the image
+horizontally and a negative height flips it vertically, into the same `dst`;
+the texels are still those of `{x, y, |w|, |h|}`, so
+`{0, 0, -f32(tex.width), f32(tex.height)}` is the whole texture mirrored
+(a sprite facing the other way).
+
 ## Shapes
 
 Vector shapes built from the quad batcher. They respect the transform

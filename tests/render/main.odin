@@ -68,6 +68,7 @@ tests := []Test {
 	{name = "fragment_shader_compile_error", run = test_fragment_shader_compile_error},
 	{name = "frame_count", run = test_frame_count},
 	{name = "save_render_texture", run = test_save_render_texture},
+	{name = "negative_source_flips", run = test_negative_source_flips},
 }
 
 scale: f32 = 1
@@ -1011,6 +1012,49 @@ test_save_render_texture :: proc(step: int) -> bool {
 		}
 		expect_color(px(p, 2, 4), w.RED, "opaque red half")
 		expect_color(px(p, 20, 4), {0, 255, 0, 128}, "50% green half, straight alpha", 1)
+	}
+	return true
+}
+
+// A negative source width flips horizontally and a negative height
+// vertically; the texels are still those of {x, y, |w|, |h|}. The texture
+// is 4x2: black on the left, red/green over blue/white on the right.
+test_negative_source_flips :: proc(step: int) -> bool {
+	K :: w.Color{0, 0, 0, 255}
+	R :: w.Color{255, 0, 0, 255}
+	G :: w.Color{0, 255, 0, 255}
+	B :: w.Color{0, 0, 255, 255}
+	W :: w.Color{255, 255, 255, 255}
+	rows := [2][4]w.Color{{K, K, R, G}, {K, K, B, W}}
+	tex := w.load_texture((cast([^]u8)&rows)[:size_of(rows)], 4, 2)
+	defer w.destroy_texture(&tex)
+
+	Case :: struct {
+		src:            w.Rect,
+		tl, tr, bl, br: w.Color,
+		what:           string,
+	}
+	cases := [?]Case {
+		{{2, 0, 2, 2}, R, G, B, W, "unflipped"},
+		{{2, 0, -2, 2}, G, R, W, B, "negative width"},
+		{{2, 0, 2, -2}, B, W, R, G, "negative height"},
+		{{2, 0, -2, -2}, W, B, G, R, "both negative"},
+	}
+	for c, i in cases {
+		x := f32(i) * 120
+		w.draw_texture_rect(tex, c.src, {x, 0, 100, 100})
+		w.draw_texture_ex(tex, c.src, {x, 120, 100, 100}, {}, 0)
+	}
+	s := snap()
+	for c, i in cases {
+		x := f32(i) * 120
+		for y in ([2]f32{0, 120}) {
+			name := fmt.tprintf("%s %s", y == 0 ? "draw_texture_rect" : "draw_texture_ex", c.what)
+			expect_color(at(s, x + 25, y + 25), c.tl, fmt.tprintf("%s: top left", name), 4)
+			expect_color(at(s, x + 75, y + 25), c.tr, fmt.tprintf("%s: top right", name), 4)
+			expect_color(at(s, x + 25, y + 75), c.bl, fmt.tprintf("%s: bottom left", name), 4)
+			expect_color(at(s, x + 75, y + 75), c.br, fmt.tprintf("%s: bottom right", name), 4)
+		}
 	}
 	return true
 }
