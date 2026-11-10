@@ -27,11 +27,15 @@ VERTEX_FLOATS :: 8
 @(private = "package")
 VERTEX_SIZE :: VERTEX_FLOATS * size_of(f32)
 
-// The GPU vertex buffer holds multiple batches so that each flush within a
+// Each GPU vertex buffer holds multiple batches so that each flush within a
 // frame writes to a distinct region (wgpu stages all writes before execution,
-// so reusing the same offset would corrupt earlier draw calls).
+// so reusing the same offset would corrupt earlier draw calls). When a frame
+// fills one buffer the next flush moves on to another, created on first
+// need and kept for later frames, so there is no per-frame quad limit.
 @(private = "package")
 GPU_BUFFER_BATCHES :: 8
+@(private = "package")
+GPU_BUFFER_VERTICES :: BATCH_MAX_VERTICES * GPU_BUFFER_BATCHES
 
 @(private = "package")
 MAX_BIND_GROUPS_PER_FRAME :: 256
@@ -194,7 +198,8 @@ Bind_Group_Key :: struct {
 Batch_State :: struct {
 	vertices:      [BATCH_MAX_VERTICES * VERTEX_FLOATS]f32,
 	vertex_count:  int,
-	buffer_offset: int, // running offset into GPU vertex buffer across flushes
+	buffer_index:  int, // vertex buffer the next flush writes to
+	buffer_offset: int, // running offset (in vertices) into that buffer
 	texture_view:  wgpu.TextureView, // currently bound texture for batching
 	bind_group:    wgpu.BindGroup, // current projection+sampler+texture bind group
 	active_shader: core.Shader_Handle, // zero-value = default pipeline
@@ -236,8 +241,9 @@ Renderer :: struct {
 	// Sampler
 	sampler:              wgpu.Sampler,
 
-	// Vertex buffer (GPU side)
-	vertex_buffer:        wgpu.Buffer,
+	// Vertex buffers (GPU side), each GPU_BUFFER_VERTICES vertices; a frame
+	// uses as many as it fills, starting from the first.
+	vertex_buffers:       [dynamic]wgpu.Buffer,
 
 	// Index buffer (GPU side, static — generated once at init)
 	index_buffer:         wgpu.Buffer,
@@ -473,15 +479,8 @@ renderer_on_device_ready :: proc() {
 		},
 	)
 
-	// Create vertex buffer (GPU side)
-	r.vertex_buffer = wgpu.DeviceCreateBuffer(
-		r.device,
-		&{
-			label = "Vertex Buffer",
-			usage = {.Vertex, .CopyDst},
-			size = size_of(r.batch.vertices) * GPU_BUFFER_BATCHES,
-		},
-	)
+	// Create the first vertex buffer (GPU side); more are added on demand.
+	append(&r.vertex_buffers, create_vertex_buffer())
 
 	// Create static index buffer — pattern repeats for every quad: 0,1,2, 0,2,3, 4,5,6, 4,6,7, ...
 	{
@@ -564,6 +563,18 @@ renderer_on_device_ready :: proc() {
 	if r.on_initialized != nil {
 		r.on_initialized()
 	}
+}
+
+@(private = "package")
+create_vertex_buffer :: proc() -> wgpu.Buffer {
+	return wgpu.DeviceCreateBuffer(
+		renderer.device,
+		&{
+			label = "Vertex Buffer",
+			usage = {.Vertex, .CopyDst},
+			size = GPU_BUFFER_VERTICES * VERTEX_SIZE,
+		},
+	)
 }
 
 //----------//
@@ -683,7 +694,10 @@ renderer_shutdown :: proc() {
 	hm.dynamic_destroy(&r.shaders)
 
 	offscreen_destroy()
-	if r.vertex_buffer != nil {wgpu.BufferRelease(r.vertex_buffer)}
+	for buffer in r.vertex_buffers {
+		wgpu.BufferRelease(buffer)
+	}
+	delete(r.vertex_buffers)
 	if r.index_buffer != nil {wgpu.BufferRelease(r.index_buffer)}
 	if r.projection_buffer != nil {wgpu.BufferRelease(r.projection_buffer)}
 	if r.sampler != nil {wgpu.SamplerRelease(r.sampler)}

@@ -23,6 +23,7 @@ renderer_begin_frame :: proc(color: core.Color) -> bool {
 
 	r.frame_index += 1
 	r.batch.vertex_count = 0
+	r.batch.buffer_index = 0
 	r.batch.buffer_offset = 0
 	r.batch.texture_view = nil
 	r.batch.bind_group = nil
@@ -122,10 +123,21 @@ renderer_flush :: proc() {
 		return
 	}
 
-	// Upload vertex data at the current offset into the GPU buffer.
-	data_size := uint(r.batch.vertex_count * VERTEX_FLOATS * size_of(f32))
-	gpu_offset := uint(r.batch.buffer_offset * VERTEX_FLOATS * size_of(f32))
-	wgpu.QueueWriteBuffer(r.queue, r.vertex_buffer, u64(gpu_offset), &r.batch.vertices, data_size)
+	// Upload vertex data at the current offset into the GPU buffer. Regions
+	// written earlier this frame are still referenced by recorded draws, so
+	// when this buffer is full move on to the next one (creating it if this
+	// is the most any frame has needed so far).
+	if r.batch.buffer_offset + r.batch.vertex_count > GPU_BUFFER_VERTICES {
+		r.batch.buffer_index += 1
+		r.batch.buffer_offset = 0
+		if r.batch.buffer_index == len(r.vertex_buffers) {
+			append(&r.vertex_buffers, create_vertex_buffer())
+		}
+	}
+	vertex_buffer := r.vertex_buffers[r.batch.buffer_index]
+	data_size := uint(r.batch.vertex_count * VERTEX_SIZE)
+	gpu_offset := uint(r.batch.buffer_offset * VERTEX_SIZE)
+	wgpu.QueueWriteBuffer(r.queue, vertex_buffer, u64(gpu_offset), &r.batch.vertices, data_size)
 
 	// Use the custom shader pipeline if active (and compiled), otherwise the default.
 	entry, ok := hm.get(&r.shaders, r.batch.active_shader)
@@ -197,7 +209,7 @@ renderer_flush :: proc() {
 	wgpu.RenderPassEncoderSetVertexBuffer(
 		r.frame.pass,
 		0,
-		r.vertex_buffer,
+		vertex_buffer,
 		u64(gpu_offset),
 		u64(data_size),
 	)
@@ -222,9 +234,6 @@ renderer_flush :: proc() {
 	r.current_stats.quads += quad_count
 
 	r.batch.buffer_offset += r.batch.vertex_count
-	if r.batch.buffer_offset + BATCH_MAX_VERTICES > BATCH_MAX_VERTICES * GPU_BUFFER_BATCHES {
-		r.batch.buffer_offset = 0
-	}
 	r.batch.vertex_count = 0
 }
 
