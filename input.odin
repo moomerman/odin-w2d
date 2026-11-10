@@ -25,8 +25,8 @@ Input_State :: struct {
 	// holds the previous frame so the accessors can derive went-down / went-up edges.
 	gamepads_curr:            [core.MAX_GAMEPADS]core.Gamepad_State,
 	gamepads_prev:            [core.MAX_GAMEPADS]core.Gamepad_State,
-	// The gamepad subsystem inits lazily on first use, so games that never touch a
-	// gamepad don't pay its startup cost (~hundreds of ms on some platforms).
+	// Set by init_gamepad. The gamepad subsystem is opt-in, so games that never
+	// touch a gamepad don't pay its startup cost (~hundreds of ms on some platforms).
 	gamepad_active:           bool,
 }
 
@@ -95,7 +95,8 @@ process_input :: proc() {
 	// macOS trackpads can deliver DOWN+UP in the same event batch when the
 	// user clicks, then send a sustained DOWN ~500ms later once the OS
 	// confirms a hold/drag. When both fire in the same frame, keep held
-	// true and defer the UP by several frames to bridge the gap.
+	// true and defer the UP to the next frame, so a click that starts and ends
+	// within one frame is still seen as held for that frame.
 	for btn in 0 ..< MOUSE_BUTTON_COUNT {
 		if input.mouse_went_down[btn] && input.mouse_went_up[btn] {
 			input.mouse_held[btn] = true

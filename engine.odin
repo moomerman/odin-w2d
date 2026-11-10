@@ -50,8 +50,8 @@ init :: proc(width: int, height: int, title: string) {
 	ctx.gamepad = defaults.gamepad
 
 	ctx.window.init(width, height, title, on_window_resize)
-	// Gamepad init is deferred to first use (see ensure_gamepad_active) so it
-	// stays off the startup path for games that don't read a gamepad.
+	// The gamepad backend is opt-in (see init_gamepad) so it stays off the
+	// startup path for games that don't read a gamepad.
 
 	ctx.start_time = time.now()
 	ctx.prev_frame_time = ctx.start_time
