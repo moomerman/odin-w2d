@@ -118,7 +118,7 @@ Miniaudio_State :: struct {
 	callback_queue:    Callback_Queue,
 	listener_position: core.Vec2,
 	sources:           [dynamic]^Loaded_Source,
-	instances:         [dynamic]^Playing_Instance,
+	instances:         [dynamic]^Playing_Instance, // live instances only; finished ones are removed
 	next_instance_id:  u32,
 }
 
@@ -174,9 +174,7 @@ ma_shutdown :: proc() {
 	allocator := state.allocator
 
 	for inst in state.instances {
-		if inst != nil {
-			release_instance(inst)
-		}
+		release_instance(inst)
 	}
 	delete(state.instances)
 
@@ -236,12 +234,14 @@ ma_update :: proc() {
 		}
 	}
 
-	#reverse for inst, i in state.instances {
-		if inst == nil do continue
-
+	// Iterate backwards so unordered_remove only moves already-visited
+	// entries into the freed slot. Instance handles are ids, not indices, so
+	// reordering the list is safe.
+	for i := len(state.instances) - 1; i >= 0; i -= 1 {
+		inst := state.instances[i]
 		if intrinsics.atomic_load(&inst.finished) {
 			release_instance(inst)
-			state.instances[i] = nil
+			unordered_remove(&state.instances, i)
 		}
 	}
 }
@@ -499,11 +499,12 @@ ma_reload_audio_from_bytes :: proc(source: core.Audio_Source, data: []u8) -> boo
 // Does not fire on_end, matching stop_audio.
 @(private = "file")
 release_source_instances :: proc(source: core.Audio_Source) {
-	#reverse for inst, i in state.instances {
-		if inst == nil || inst.source != source do continue
+	for i := len(state.instances) - 1; i >= 0; i -= 1 {
+		inst := state.instances[i]
+		if inst.source != source do continue
 
 		release_instance(inst)
-		state.instances[i] = nil
+		unordered_remove(&state.instances, i)
 	}
 }
 
@@ -785,7 +786,7 @@ find_instance :: proc(handle: core.Audio_Instance) -> ^Playing_Instance {
 	if handle == core.AUDIO_INSTANCE_NONE do return nil
 
 	for inst in state.instances {
-		if inst != nil && inst.handle == handle {
+		if inst.handle == handle {
 			return inst
 		}
 	}
@@ -833,7 +834,6 @@ ma_stop_all_audio :: proc(bus: core.Audio_Bus) {
 	if state == nil do return
 
 	for inst in state.instances {
-		if inst == nil do continue
 		if intrinsics.atomic_load(&inst.finished) do continue
 
 		if bus != core.AUDIO_BUS_NONE {
