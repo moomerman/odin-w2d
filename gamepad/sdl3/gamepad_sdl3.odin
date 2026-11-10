@@ -143,6 +143,12 @@ gamepad_set_vibration :: proc(gamepad: core.Gamepad_Index, left, right: f32, dur
 assign_slots :: proc() {
 	count: i32
 	ids := SDL.GetGamepads(&count)
+	// The array is SDL-allocated and must be released with SDL_free (a no-op
+	// for nil). On failure treat it as "no controllers connected".
+	defer SDL.free(ids)
+	if ids == nil {
+		count = 0
+	}
 
 	// Drop handles whose controller is no longer connected.
 	for &handle, i in handles {
