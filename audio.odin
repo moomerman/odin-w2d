@@ -12,8 +12,14 @@ import "core"
 //---------------------//
 
 // Initialize the audio system. Call this in your init proc.
+// In a headless run (init_headless or W2D_HEADLESS) audio still works but the
+// main bus starts muted, so unattended runs are silent.
 init_audio :: proc() -> bool {
-	return ctx.audio.init(nil)
+	ok := ctx.audio.init(nil)
+	if ok && ctx.headless {
+		ctx.audio.set_bus_muted(ctx.audio.get_main_bus(), true)
+	}
+	return ok
 }
 
 // Shut down the audio system. Call this in your shutdown proc.

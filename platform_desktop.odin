@@ -27,6 +27,11 @@ platform_run :: proc() {
 				ctx.prev_frame_time = {}
 			}
 			if ctx.frame_proc != nil {
+				// Scripted input, resizes and quit for this frame (automation.odin).
+				automation_begin_frame()
+				if ctx.quit_requested {
+					break
+				}
 				process_input()
 				calculate_frame_time()
 				// Hot-reload changed asset files in dev builds. Runs between
@@ -37,6 +42,7 @@ platform_run :: proc() {
 				}
 				ctx.audio.update()
 				ctx.frame_proc(ctx.frame_time)
+				automation_end_frame()
 			}
 		}
 	}
@@ -45,4 +51,6 @@ platform_run :: proc() {
 		ctx.shutdown_proc()
 	}
 	engine_shutdown()
+	// Exits with status 1 if an automation script could not be carried out.
+	automation_finish()
 }

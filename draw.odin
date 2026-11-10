@@ -24,6 +24,7 @@ clear :: proc(color: Color) {
 
 // Present the frame to the screen. Call once at the end of each frame's drawing.
 present :: proc() {
+	automation_present() // scripted screenshots of this frame
 	ctx.renderer.present()
 }
 
