@@ -242,6 +242,7 @@ register_assets :: proc(prefix: string, files: []runtime.Load_Directory_File)
 // Fonts are not hot-reloaded.
 load_texture_from_file :: proc(path: string) -> Texture
 load_shader_from_file :: proc(path: string) -> Shader
+load_fragment_shader_from_file :: proc(path: string) -> Shader // see Shaders
 load_font_from_file :: proc(path: string) -> Font
 
 // Raw bytes for data the engine has no loader for (levels, config). The
@@ -444,18 +445,62 @@ there is no weight selection. Ship static instances for other weights.
 
 ## Shaders
 
-In a custom shader the vertex colour and every texture sample are
-premultiplied by alpha, and the fragment shader must return premultiplied
-colour. `textureSample(...) * in.color` and scaling the whole `vec4` are
-already correct. To operate on the true colour (a LUT, a hue shift), divide
-`rgb` by `a` first and multiply back afterwards; `examples/shader/lut.wgsl`
-shows this.
+Custom shaders are WGSL, in one of two forms.
+
+**Fragment-only** (`load_fragment_shader`), the usual one: write the
+fragment stage and your own group 1 bindings, and the engine appends its
+prelude, `render/wgpu/prelude.wgsl`, which the default shader is built from
+too. The prelude declares, and so reserves, these names:
+
+| Name | What it is |
+| --- | --- |
+| `VertexInput` | vertex attributes: `position`, `texcoord`, `color` |
+| `VertexOutput` | the fragment stage's input: `position: vec4<f32>` (`@builtin(position)`, framebuffer pixels), `texcoord: vec2<f32>` (`@location(0)`), `color: vec4<f32>` (`@location(1)`, premultiplied) |
+| `projection` | `@group(0) @binding(0) var<uniform> mat4x4<f32>` |
+| `tex_sampler` | `@group(0) @binding(1) var sampler`: the drawn texture's filter and wrap mode |
+| `tex` | `@group(0) @binding(2) var texture_2d<f32>`: the texture being drawn |
+| `vs_main` | the vertex stage |
+
+```wgsl
+struct Params { time: f32 };
+@group(1) @binding(0) var<uniform> params: Params;
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    return textureSample(tex, tex_sampler, in.texcoord) * in.color;
+}
+```
+
+The prelude goes after your source (WGSL module-scope declarations can be
+in any order), so line numbers in compile errors are those of the file you
+wrote. If an error cites a line past the end of your source, the log says
+it is in the prelude, which usually means you declared a reserved name.
+
+**Full** (`load_shader`), for a custom vertex stage: the source declares
+everything itself, using the same vertex input locations (position 0,
+texcoord 1, colour 2) and group 0 bindings as the prelude.
+
+In both forms group 1 is yours: at most one `var<uniform>` struct, whose
+fields `set_shader_uniform` sets by name, and any number of `texture_2d`
+bindings for `set_shader_texture`. Group 1 samplers are not supported;
+sample with `tex_sampler` or read exact texels with `textureLoad`.
+
+The vertex colour and every texture sample are premultiplied by alpha, and
+the fragment shader must return premultiplied colour.
+`textureSample(...) * in.color` and scaling the whole `vec4` are already
+correct. To operate on the true colour (a LUT, a hue shift), divide `rgb` by
+`a` first and multiply back afterwards; `examples/shader/lut.wgsl` shows
+this.
 
 ```odin
 // ok is optional. A shader that fails to compile logs the error and returns
 // ok = false, but stays usable: draws fall back to the default shader until
-// a hot-reload of fixed source succeeds.
+// a hot-reload of fixed source succeeds. Both forms behave the same.
+load_fragment_shader :: proc(wgsl_source: string) -> (shader: Shader, ok: bool)
 load_shader :: proc(wgsl_source: string) -> (shader: Shader, ok: bool)
+// From an asset path; hot-reloaded in dev builds, in the form it was loaded in.
+load_fragment_shader_from_file :: proc(path: string) -> Shader
+load_shader_from_file :: proc(path: string) -> Shader
 // Array uniforms (array<T, N>, N a literal or an integer const) take a
 // fixed array, slice or dynamic array; elements are copied into the WGSL
 // stride, so [N][3]f32 fills array<vec3f, N>.

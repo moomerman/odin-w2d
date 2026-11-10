@@ -62,6 +62,8 @@ tests := []Test {
 	{name = "sampling_change_mid_frame", run = test_sampling_change_mid_frame},
 	{name = "sampling_render_texture_shader", run = test_sampling_render_texture_shader},
 	{name = "many_textures", run = test_many_textures},
+	{name = "fragment_shader_draws", run = test_fragment_shader_draws},
+	{name = "fragment_shader_compile_error", run = test_fragment_shader_compile_error},
 }
 
 scale: f32 = 1
@@ -876,4 +878,86 @@ test_many_textures :: proc(step: int) -> bool {
 	expect_color(at(s, 5, 10), {0, 0, 255, 255}, "first texture")
 	expect_color(at(s, 29 * 20 + 15, 9 * 20 + 10), {299 % 256, 0, 255, 255}, "last texture")
 	return true
+}
+
+//-----------------------//
+// FRAGMENT-ONLY SHADERS //
+//-----------------------//
+
+// Only the fragment stage and a uniform; the prelude supplies VertexOutput,
+// tex, tex_sampler and the vertex stage.
+FRAGMENT_TINT_SHADER :: `
+struct Params {
+    tint: vec4<f32>,
+};
+@group(1) @binding(0) var<uniform> params: Params;
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    return textureSample(tex, tex_sampler, in.texcoord) * in.color * params.tint;
+}
+`
+
+fragment_tint_shader: w.Shader
+
+test_fragment_shader_draws :: proc(step: int) -> bool {
+	if step == 1 {
+		w.destroy_shader(&fragment_tint_shader)
+		return true
+	}
+	ok: bool
+	fragment_tint_shader, ok = w.load_fragment_shader(FRAGMENT_TINT_SHADER)
+	expect(ok, "fragment-only shader compiles")
+	tex := red_blue_texture()
+	defer w.destroy_texture(&tex)
+
+	w.set_shader(&fragment_tint_shader)
+	w.set_shader_uniform(&fragment_tint_shader, "tint", [4]f32{1, 0.5, 0, 1})
+	w.draw_rect({0, 0, 100, 50}, w.WHITE)
+	w.draw_rect({100, 0, 100, 50}, {255, 255, 255, 128}) // arrives premultiplied
+	w.draw_texture_rect(tex, {0, 0, 2, 1}, {200, 0, 100, 50})
+	w.reset_shader()
+	w.draw_rect({300, 0, 100, 50}, w.WHITE)
+	s := snap()
+	expect_color(at(s, 50, 25), {255, 128, 0, 255}, "white times the tint uniform", 1)
+	expect_color(at(s, 150, 25), {128, 64, 0, 255}, "premultiplied vertex colour", 1)
+	expect_color(at(s, 225, 25), {255, 0, 0, 255}, "texture sampled through the prelude", 1)
+	expect_color(at(s, 275, 25), {0, 0, 0, 255}, "blue texel tinted away", 1)
+	expect_color(at(s, 350, 25), w.WHITE, "default shader after reset_shader")
+	return false
+}
+
+// A syntax error: ok = false, no crash, and drawing with the shader falls
+// back to the default shader, the same as for a full shader.
+BROKEN_FRAGMENT_SHADER :: `
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    return this is not wgsl;
+}
+`
+
+broken_fragment: w.Shader
+broken_full: w.Shader
+
+test_fragment_shader_compile_error :: proc(step: int) -> bool {
+	if step == 1 {
+		w.destroy_shader(&broken_fragment)
+		w.destroy_shader(&broken_full)
+		return true
+	}
+	ok_fragment, ok_full: bool
+	broken_fragment, ok_fragment = w.load_fragment_shader(BROKEN_FRAGMENT_SHADER)
+	broken_full, ok_full = w.load_shader(BROKEN_FRAGMENT_SHADER)
+	expect(!ok_fragment, "fragment-only shader with a syntax error reports ok = false")
+	expect(!ok_full, "full shader with a syntax error reports ok = false")
+
+	w.set_shader(&broken_fragment)
+	w.draw_rect({0, 0, 100, 50}, w.RED)
+	w.set_shader(&broken_full)
+	w.draw_rect({100, 0, 100, 50}, w.GREEN)
+	w.reset_shader()
+	s := snap()
+	expect_color(at(s, 50, 25), w.RED, "broken fragment-only shader draws with the default")
+	expect_color(at(s, 150, 25), w.GREEN, "broken full shader draws with the default")
+	return false
 }

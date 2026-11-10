@@ -13,11 +13,29 @@ import core "../../core"
 // metadata is kept so values can be set, draws fall back to the default
 // pipeline, and a later reload (e.g. hot-reload of fixed source) revives it.
 @(private = "package")
-renderer_load_shader :: proc(wgsl_source: string) -> (handle: core.Shader_Handle, ok: bool) {
+renderer_load_shader :: proc(
+	wgsl_source: string,
+	fragment_only: bool,
+) -> (
+	handle: core.Shader_Handle,
+	ok: bool,
+) {
 	entry: Shader_Entry
-	entry, ok = shader_build_entry_checked(wgsl_source)
+	entry, ok = shader_build_entry_checked(wgsl_source, fragment_only)
 	handle, _ = hm.add(&renderer.shaders, entry)
 	return handle, ok
+}
+
+// The WGSL to compile: a fragment-only source with the prelude appended.
+// Appending (rather than prepending) keeps the line numbers in compile
+// errors those of the game's source; WGSL module-scope declarations may come
+// in any order. Allocated with the temp allocator.
+@(private = "file")
+shader_full_source :: proc(wgsl_source: string, fragment_only: bool) -> string {
+	if !fragment_only {
+		return wgsl_source
+	}
+	return strings.concatenate({wgsl_source, "\n", SHADER_PRELUDE}, context.temp_allocator)
 }
 
 // Build a Shader_Entry inside a validation error scope so compile errors are
@@ -25,12 +43,21 @@ renderer_load_shader :: proc(wgsl_source: string) -> (handle: core.Shader_Handle
 // (which aborts the process). On failure the entry's GPU objects are released
 // and nil'd, but its CPU-side metadata is kept.
 @(private = "file")
-shader_build_entry_checked :: proc(wgsl_source: string) -> (entry: Shader_Entry, ok: bool) {
+shader_build_entry_checked :: proc(
+	wgsl_source: string,
+	fragment_only: bool,
+) -> (
+	entry: Shader_Entry,
+	ok: bool,
+) {
+	source := shader_full_source(wgsl_source, fragment_only)
 	when ODIN_OS == .JS {
 		// Browser WebGPU reports errors asynchronously and never aborts —
 		// invalid objects just log to the console. Hot reload is desktop-only,
 		// so there is nothing to recover into.
-		return shader_build_entry(wgsl_source), true
+		entry = shader_build_entry(source)
+		entry.fragment_only = fragment_only
+		return entry, true
 	} else {
 		r := &renderer
 
@@ -38,31 +65,50 @@ shader_build_entry_checked :: proc(wgsl_source: string) -> (entry: Shader_Entry,
 		// return values. Validation in wgpu-native is synchronous, but pump
 		// InstanceProcessEvents once in case the callback is deferred.
 		Error_Capture :: struct {
-			fired:     bool,
-			has_error: bool,
+			fired:      bool,
+			has_error:  bool,
+			// Fragment-only: the last line of the game's source; later
+			// lines in an error are the engine prelude.
+			user_lines: int,
 		}
 		capture: Error_Capture
+		if fragment_only {
+			capture.user_lines = strings.count(wgsl_source, "\n") + 1
+		}
 
 		wgpu.DevicePushErrorScope(r.device, .Validation)
-		entry = shader_build_entry(wgsl_source)
-		wgpu.DevicePopErrorScope(r.device, {
-			mode = .AllowProcessEvents,
-			callback = proc "c" (
-				status: wgpu.PopErrorScopeStatus,
-				type: wgpu.ErrorType,
-				message: string,
-				userdata1, userdata2: rawptr,
-			) {
-				capture := (^Error_Capture)(userdata1)
-				capture.fired = true
-				if status == .Success && type != .NoError {
-					capture.has_error = true
-					context = renderer.ctx
-					fmt.eprintfln("[shader] compile failed: %s", message)
-				}
+		entry = shader_build_entry(source)
+		entry.fragment_only = fragment_only
+		wgpu.DevicePopErrorScope(
+			r.device,
+			{
+				mode = .AllowProcessEvents,
+				callback = proc "c" (
+					status: wgpu.PopErrorScopeStatus,
+					type: wgpu.ErrorType,
+					message: string,
+					userdata1, userdata2: rawptr,
+				) {
+					capture := (^Error_Capture)(userdata1)
+					capture.fired = true
+					if status == .Success && type != .NoError {
+						capture.has_error = true
+						context = renderer.ctx
+						fmt.eprintfln("[shader] compile failed: %s", message)
+						// naga cites locations as wgsl:LINE:COL. Lines in the
+						// game's source are already right; say so when one
+						// points into the prelude (a reserved name redeclared).
+						if capture.user_lines > 0 && max_cited_line(message) > capture.user_lines {
+							fmt.eprintfln(
+								"[shader] lines after %d are the engine prelude (render/wgpu/prelude.wgsl): a name it declares is probably declared again",
+								capture.user_lines,
+							)
+						}
+					}
+				},
+				userdata1 = &capture,
 			},
-			userdata1 = &capture,
-		})
+		)
 		if !capture.fired {
 			wgpu.InstanceProcessEvents(r.instance)
 		}
@@ -73,6 +119,36 @@ shader_build_entry_checked :: proc(wgsl_source: string) -> (entry: Shader_Entry,
 		}
 		return entry, true
 	}
+}
+
+// The highest source line a compile error cites, or 0. naga gives the
+// primary location as "wgsl:LINE:COL" and others only in the source
+// excerpt's gutter, as "LINE │ code".
+@(private = "file")
+max_cited_line :: proc(message: string) -> int {
+	highest := 0
+	rest := message
+	for {
+		i := strings.index(rest, "wgsl:")
+		if i < 0 {
+			break
+		}
+		rest = rest[i + len("wgsl:"):]
+		highest = max(highest, parse_int_simple(rest))
+	}
+	lines := message
+	for line in strings.split_lines_iterator(&lines) {
+		trimmed := strings.trim_left_space(line)
+		n := parse_int_simple(trimmed)
+		digits := 0
+		for digits < len(trimmed) && trimmed[digits] >= '0' && trimmed[digits] <= '9' {
+			digits += 1
+		}
+		if digits > 0 && strings.has_prefix(trimmed[digits:], " │") {
+			highest = max(highest, n)
+		}
+	}
+	return highest
 }
 
 // Compile WGSL source into a complete Shader_Entry (module, layouts,
@@ -383,7 +459,7 @@ renderer_reload_shader :: proc(handle: core.Shader_Handle, wgsl_source: string) 
 		return false
 	}
 
-	new_entry, built := shader_build_entry_checked(wgsl_source)
+	new_entry, built := shader_build_entry_checked(wgsl_source, old.fragment_only)
 	if !built {
 		shader_release_entry(&new_entry)
 		return false

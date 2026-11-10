@@ -119,15 +119,28 @@ load_texture_from_file :: proc(path: string) -> Texture {
 // shader is kept. A shader that fails its first compile draws with the
 // default shader until the file is fixed.
 load_shader_from_file :: proc(path: string) -> Shader {
+	return load_shader_file(path, false)
+}
+
+// Load a fragment-only WGSL shader (see load_fragment_shader) from a
+// registered asset path or a file on disk, with the same dev-mode hot
+// reloading as load_shader_from_file.
+load_fragment_shader_from_file :: proc(path: string) -> Shader {
+	return load_shader_file(path, true)
+}
+
+@(private = "file")
+load_shader_file :: proc(path: string, fragment_only: bool) -> Shader {
 	data, owned := asset_resolve_or_panic(path)
-	shader := load_shader(string(data))
+	handle, _ := ctx.renderer.load_shader(string(data), fragment_only)
 	if owned {
 		delete(data)
 	}
 	when DEV {
-		assets_watch_add_shader(path, shader.handle)
+		// Reloads keep the form the shader was loaded in.
+		assets_watch_add_shader(path, handle)
 	}
-	return shader
+	return Shader{handle = handle}
 }
 
 // Load a TTF font from a registered asset path, or from a file on disk

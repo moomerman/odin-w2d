@@ -152,11 +152,20 @@ Render_Backend :: struct {
 	// Load a custom shader from WGSL source. Returns an opaque handle. If
 	// compilation fails, ok is false but the handle is still valid: draws
 	// with it use the default shader until a successful reload_shader.
-	load_shader:              proc(wgsl_source: string) -> (handle: Shader_Handle, ok: bool),
+	// fragment_only: the source is the fragment stage alone, and the backend
+	// supplies the vertex format, group 0 bindings and vertex stage.
+	load_shader:              proc(
+		wgsl_source: string,
+		fragment_only: bool,
+	) -> (
+		handle: Shader_Handle,
+		ok: bool,
+	),
 
 	// Recompile a custom shader from new WGSL source in place behind its
-	// handle. Returns false — keeping the previous program intact — if
-	// compilation fails. Uniform values and texture bindings are preserved
+	// handle, in the same form (full or fragment-only) it was loaded in.
+	// Returns false — keeping the previous program intact — if compilation
+	// fails. Uniform values and texture bindings are preserved
 	// by name where compatible. Must be called outside begin_frame/present.
 	reload_shader:            proc(handle: Shader_Handle, wgsl_source: string) -> bool,
 

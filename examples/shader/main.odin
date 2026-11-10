@@ -19,7 +19,7 @@ main :: proc() {
 
 init :: proc() {
 	logo = w.load_texture(#load("../texture/logo.png"))
-	scanline_shader = w.load_shader(#load("scanline.wgsl"))
+	scanline_shader = w.load_fragment_shader(#load("scanline.wgsl"))
 
 	// Set initial uniform values
 	w.set_shader_uniform(&scanline_shader, "intensity", f32(0.3))
@@ -40,7 +40,7 @@ init :: proc() {
 	}
 	lut = w.load_texture(pixels[:], 256, 1)
 
-	lut_shader = w.load_shader(#load("lut.wgsl"))
+	lut_shader = w.load_fragment_shader(#load("lut.wgsl"))
 	w.set_shader_texture(&lut_shader, "lut", lut)
 }
 

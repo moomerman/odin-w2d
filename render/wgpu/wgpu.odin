@@ -63,6 +63,15 @@ UNIFORM_SLOT_ALIGNMENT :: 256
 @(private = "package")
 UNIFORM_INITIAL_SLOTS :: 16
 
+// The shared shader prelude (vertex format, group 0 bindings, vertex stage),
+// appended to every fragment-only shader. The default shader is one too, so
+// the two cannot drift apart.
+@(private = "package")
+SHADER_PRELUDE :: #load("prelude.wgsl", string)
+
+@(private = "package")
+DEFAULT_SHADER :: #load("shader.wgsl", string) + "\n" + SHADER_PRELUDE
+
 //-------//
 // TYPES //
 //-------//
@@ -162,6 +171,10 @@ Shader_Entry :: struct {
 	// Entry points
 	vertex_entry:      string,
 	fragment_entry:    string,
+
+	// Loaded with load_fragment_shader: the source given is the fragment
+	// stage only, completed by SHADER_PRELUDE (reloads are too).
+	fragment_only:     bool,
 }
 
 // Per-frame transient GPU state, reset at the start of each frame.
@@ -465,12 +478,7 @@ renderer_on_device_ready :: proc() {
 	// Create shader module
 	r.shader_module = wgpu.DeviceCreateShaderModule(
 		r.device,
-		&{
-			nextInChain = &wgpu.ShaderSourceWGSL {
-				sType = .ShaderSourceWGSL,
-				code = #load("shader.wgsl"),
-			},
-		},
+		&{nextInChain = &wgpu.ShaderSourceWGSL{sType = .ShaderSourceWGSL, code = DEFAULT_SHADER}},
 	)
 
 	// Create the samplers. Textures have no mipmaps, so mipmapFilter is moot.
