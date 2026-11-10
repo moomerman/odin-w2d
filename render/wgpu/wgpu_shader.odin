@@ -512,8 +512,8 @@ renderer_set_shader_uniform :: proc(handle: core.Shader_Handle, name: string, va
 		return
 	}
 
-	uniform: Shader_Uniform
-	uniform, ok = entry.uniforms[name]
+	uniform: ^Shader_Uniform
+	uniform, ok = &entry.uniforms[name]
 	if !ok {
 		// A shader that failed to compile may have incomplete metadata; its
 		// compile error was already logged, so don't add per-frame noise.
@@ -556,10 +556,16 @@ renderer_set_shader_uniform :: proc(handle: core.Shader_Handle, name: string, va
 }
 
 // Write value into dst (the uniform's bytes in the uniform struct) in the
-// shader's layout. Returns false, after logging, when value can't be used.
+// shader's layout. Returns false, after logging (once per uniform), when
+// value's type doesn't fit the uniform.
 @(private = "file")
-shader_encode_uniform :: proc(uniform: Shader_Uniform, name: string, value: any, dst: []u8) -> bool {
-	// Bytes per value (per element for arrays) in the source data
+shader_encode_uniform :: proc(
+	uniform: ^Shader_Uniform,
+	name: string,
+	value: any,
+	dst: []u8,
+) -> bool {
+	// Bytes per value (per element for arrays) in the shader's layout
 	src_size := 0
 	switch uniform.type {
 	case .F32, .I32, .U32:
@@ -574,44 +580,232 @@ shader_encode_uniform :: proc(uniform: Shader_Uniform, name: string, value: any,
 		src_size = 64
 	}
 
+	if value.data == nil {
+		uniform_warn(uniform, name, value.id, "a value")
+		return false
+	}
+
 	if uniform.count == 0 {
-		// Copy the value bytes into the staging buffer
-		if src_size <= uniform.size {
-			copy(dst, ([^]u8)(value.data)[:src_size])
-		}
-	} else {
-		// Array uniform: accept a fixed array, slice or dynamic array and copy
-		// each element into its WGSL stride slot (e.g. vec3 elements pad to 16).
-		src_data: rawptr
-		src_len, src_stride: int
-		#partial switch info in runtime.type_info_base(type_info_of(value.id)).variant {
-		case runtime.Type_Info_Array:
-			src_data, src_len, src_stride = value.data, info.count, info.elem_size
-		case runtime.Type_Info_Slice:
-			raw := (^runtime.Raw_Slice)(value.data)
-			src_data, src_len, src_stride = raw.data, raw.len, info.elem_size
-		case runtime.Type_Info_Dynamic_Array:
-			raw := (^runtime.Raw_Dynamic_Array)(value.data)
-			src_data, src_len, src_stride = raw.data, raw.len, info.elem_size
-		case:
-			fmt.eprintfln("[shader] uniform %s is an array — pass an array or slice", name)
+		if src_size > uniform.size {
 			return false
 		}
-		if src_stride < src_size {
-			fmt.eprintfln(
-				"[shader] uniform %s: element size %d is smaller than the shader's %d",
+		if !encode_uniform_value(
+			type_info_of(value.id),
+			value.data,
+			uniform.type,
+			dst[:src_size],
+		) {
+			uniform_warn(uniform, name, value.id, uniform_type_name(uniform.type))
+			return false
+		}
+		return true
+	}
+
+	// Array uniform: accept a fixed array, slice or dynamic array and write
+	// each element into its WGSL stride slot (e.g. vec3 elements pad to 16).
+	src_data: rawptr
+	src_len, src_stride: int
+	elem: ^runtime.Type_Info
+	#partial switch info in runtime.type_info_base(type_info_of(value.id)).variant {
+	case runtime.Type_Info_Array:
+		src_data, src_len, src_stride, elem = value.data, info.count, info.elem_size, info.elem
+	case runtime.Type_Info_Slice:
+		raw := (^runtime.Raw_Slice)(value.data)
+		src_data, src_len, src_stride, elem = raw.data, raw.len, info.elem_size, info.elem
+	case runtime.Type_Info_Dynamic_Array:
+		raw := (^runtime.Raw_Dynamic_Array)(value.data)
+		src_data, src_len, src_stride, elem = raw.data, raw.len, info.elem_size, info.elem
+	case:
+		uniform_warn(uniform, name, value.id, "an array or slice")
+		return false
+	}
+	src := ([^]u8)(src_data)
+	for i in 0 ..< min(src_len, uniform.count) {
+		if !encode_uniform_value(
+			elem,
+			&src[i * src_stride],
+			uniform.type,
+			dst[i * uniform.stride:][:src_size],
+		) {
+			uniform_warn(
+				uniform,
 				name,
-				src_stride,
-				src_size,
+				value.id,
+				fmt.tprintf("an array of %s", uniform_type_name(uniform.type)),
 			)
 			return false
 		}
-		src := ([^]u8)(src_data)
-		for i in 0 ..< min(src_len, uniform.count) {
-			copy(dst[i * uniform.stride:][:src_size], src[i * src_stride:][:src_size])
-		}
 	}
 	return true
+}
+
+// Report a value that can't be stored in a uniform — once per uniform, since
+// set_shader_uniform is typically called every frame.
+@(private = "file")
+uniform_warn :: proc(uniform: ^Shader_Uniform, name: string, got: typeid, want: string) {
+	if uniform.warned {
+		return
+	}
+	uniform.warned = true
+	fmt.eprintfln("[shader] uniform %s: expected %s, got %v — value ignored", name, want, got)
+}
+
+@(private = "file")
+uniform_type_name :: proc(type: Shader_Uniform_Type) -> string {
+	switch type {
+	case .F32:
+		return "f32"
+	case .I32:
+		return "i32"
+	case .U32:
+		return "u32"
+	case .Vec2F32:
+		return "[2]f32"
+	case .Vec3F32:
+		return "[3]f32"
+	case .Vec4F32:
+		return "[4]f32"
+	case .Mat4x4F32:
+		return "matrix[4, 4]f32"
+	}
+	return "?"
+}
+
+// Convert one value of type ti at data into the uniform's layout in dst
+// (exactly the WGSL type's size). Accepts the exact type, plus the common
+// near-misses: f64 (untyped float constants in an `any` are f64) and
+// integers for f32 fields, any integer for i32/u32 fields when in range,
+// and f64 vectors/matrices. Returns false for anything else.
+@(private = "file")
+encode_uniform_value :: proc(
+	ti: ^runtime.Type_Info,
+	data: rawptr,
+	type: Shader_Uniform_Type,
+	dst: []u8,
+) -> bool {
+	base := runtime.type_info_base(ti)
+	switch type {
+	case .F32:
+		f, ok := read_float(base, data)
+		if !ok {
+			i: i128
+			i, ok = read_int(base, data)
+			f = f64(i)
+		}
+		if !ok {
+			return false
+		}
+		(^f32)(raw_data(dst))^ = f32(f)
+		return true
+	case .I32:
+		i, ok := read_int(base, data)
+		if !ok || i < i128(min(i32)) || i > i128(max(i32)) {
+			return false
+		}
+		(^i32)(raw_data(dst))^ = i32(i)
+		return true
+	case .U32:
+		i, ok := read_int(base, data)
+		if !ok || i < 0 || i > i128(max(u32)) {
+			return false
+		}
+		(^u32)(raw_data(dst))^ = u32(i)
+		return true
+	case .Vec2F32, .Vec3F32, .Vec4F32, .Mat4x4F32:
+		n := len(dst) / size_of(f32)
+		elem: ^runtime.Type_Info
+		count, stride: int
+		#partial switch info in base.variant {
+		case runtime.Type_Info_Array:
+			elem, count, stride = info.elem, info.count, info.elem_size
+		case runtime.Type_Info_Matrix:
+			// Only dense 4x4 (column-major, like WGSL); other shapes don't map.
+			if info.row_count != 4 || info.column_count != 4 || info.elem_stride != 4 {
+				return false
+			}
+			if info.layout != .Column_Major {
+				return false
+			}
+			elem, count, stride = info.elem, 16, info.elem_size
+		case runtime.Type_Info_Struct:
+			// A struct of n f32 fields with no padding, e.g. {x, y: f32}.
+			if int(info.field_count) != n || base.size != len(dst) {
+				return false
+			}
+			for i in 0 ..< n {
+				field := runtime.type_info_base(info.types[i])
+				if _, is_float := field.variant.(runtime.Type_Info_Float);
+				   !is_float || field.size != 4 {
+					return false
+				}
+			}
+			copy(dst, ([^]u8)(data)[:len(dst)])
+			return true
+		case:
+			return false
+		}
+		if count != n {
+			return false
+		}
+		for i in 0 ..< n {
+			f, ok := read_float(runtime.type_info_base(elem), ([^]u8)(data)[i * stride:])
+			if !ok {
+				return false
+			}
+			(^f32)(&dst[i * size_of(f32)])^ = f32(f)
+		}
+		return true
+	}
+	return false
+}
+
+@(private = "file")
+read_float :: proc(base: ^runtime.Type_Info, data: rawptr) -> (f64, bool) {
+	info, ok := base.variant.(runtime.Type_Info_Float)
+	if !ok || info.endianness != .Platform {
+		return 0, false
+	}
+	switch base.size {
+	case 2:
+		return f64((^f16)(data)^), true
+	case 4:
+		return f64((^f32)(data)^), true
+	case 8:
+		return (^f64)(data)^, true
+	}
+	return 0, false
+}
+
+@(private = "file")
+read_int :: proc(base: ^runtime.Type_Info, data: rawptr) -> (i128, bool) {
+	info, ok := base.variant.(runtime.Type_Info_Integer)
+	if !ok || info.endianness != .Platform {
+		return 0, false
+	}
+	if info.signed {
+		switch base.size {
+		case 1:
+			return i128((^i8)(data)^), true
+		case 2:
+			return i128((^i16)(data)^), true
+		case 4:
+			return i128((^i32)(data)^), true
+		case 8:
+			return i128((^i64)(data)^), true
+		}
+	} else {
+		switch base.size {
+		case 1:
+			return i128((^u8)(data)^), true
+		case 2:
+			return i128((^u16)(data)^), true
+		case 4:
+			return i128((^u32)(data)^), true
+		case 8:
+			return i128((^u64)(data)^), true
+		}
+	}
+	return 0, false
 }
 
 @(private = "package")

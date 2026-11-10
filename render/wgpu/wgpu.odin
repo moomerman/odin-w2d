@@ -109,6 +109,7 @@ Shader_Uniform :: struct {
 	type:   Shader_Uniform_Type, // element type for arrays
 	count:  int, // array element count, 0 for non-arrays
 	stride: int, // byte distance between array elements
+	warned: bool, // a bad value was already reported for this uniform
 }
 
 // A group-1 texture binding slot within a custom shader.
