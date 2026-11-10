@@ -14,6 +14,8 @@ package engine
 //	W2D_HEADLESS=1     no window (as init_headless); audio is muted
 //	W2D_SCALE=2        headless only: simulated HiDPI scale (default 1)
 //	W2D_SCRIPT=path    play a script (below); works windowed too
+//	W2D_SCRIPT_ONLY=1  with W2D_SCRIPT: ignore keyboard and mouse input
+//	                   from the window, so only the script drives the game
 //	W2D_FRAMES=n       quit before frame n (after n frames have run)
 //	W2D_SCREENSHOT=p   with W2D_FRAMES: save the last frame to p
 //	W2D_RECORD=path    write the input the game receives as a script
@@ -106,10 +108,11 @@ automation: struct {
 
 @(private = "package")
 Automation_Config :: struct {
-	headless:   bool,
-	scale:      f32,
-	record:     bool, // W2D_RECORD is set: the timestep must be fixed
-	frame_time: f32, // > 0 when the run should use a fixed timestep
+	headless:    bool,
+	scale:       f32,
+	script_only: bool, // W2D_SCRIPT_ONLY with a script: ignore window input
+	record:      bool, // W2D_RECORD is set: the timestep must be fixed
+	frame_time:  f32, // > 0 when the run should use a fixed timestep
 }
 
 // Read the W2D_* environment variables and load the script, if any. Called
@@ -131,6 +134,9 @@ automation_configure :: proc() -> (config: Automation_Config) {
 		automation_load_script(path)
 		delete(path)
 		automation.active = true
+		config.script_only = env_flag("W2D_SCRIPT_ONLY")
+	} else if env_flag("W2D_SCRIPT_ONLY") {
+		fmt.eprintln("[w2d] W2D_SCRIPT_ONLY has no effect without W2D_SCRIPT")
 	}
 
 	if value, found := env("W2D_FRAMES"); found {

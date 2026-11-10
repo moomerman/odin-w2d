@@ -8,10 +8,11 @@ import "core"
 
 @(private = "package")
 Automation_Config :: struct {
-	headless:   bool,
-	scale:      f32,
-	record:     bool, // W2D_RECORD is set: the timestep must be fixed
-	frame_time: f32,
+	headless:    bool,
+	scale:       f32,
+	script_only: bool, // W2D_SCRIPT_ONLY with a script: ignore window input
+	record:      bool, // W2D_RECORD is set: the timestep must be fixed
+	frame_time:  f32,
 }
 
 @(private = "package")

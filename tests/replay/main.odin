@@ -10,7 +10,10 @@
 // `realtime` (with W2D_RECORD, no script) asks init_headless for real-time
 // frames and checks that recording fixes dt at 1/60 s anyway.
 //
-//   W2D_HEADLESS=1 ... ./build/tests-replay record|replay <log path>
+// W2D_SCRIPT_ONLY: `plain` runs the script alone; `locked` runs it with the
+// window events too, under W2D_SCRIPT_ONLY=1, and its log must match plain's.
+//
+//   W2D_HEADLESS=1 ... ./build/tests-replay record|replay|plain|locked <log path>
 //   W2D_RECORD=... ./build/tests-replay realtime <log path>
 package main
 
@@ -26,6 +29,8 @@ Mode :: enum {
 	Record,
 	Replay,
 	Realtime,
+	Plain,
+	Locked,
 }
 
 mode: Mode
@@ -37,7 +42,7 @@ KEYS :: [?]w.Key{.Space, .Left_Shift, .Key_1, .Return, .Z}
 
 main :: proc() {
 	if len(os.args) != 3 {
-		fmt.eprintln("usage: tests-replay record|replay|realtime <log> (run by just test)")
+		fmt.eprintln("usage: tests-replay record|replay|realtime|plain|locked <log> (just test)")
 		os.exit(2)
 	}
 	switch os.args[1] {
@@ -47,8 +52,12 @@ main :: proc() {
 		mode = .Replay
 	case "realtime":
 		mode = .Realtime
+	case "plain":
+		mode = .Plain
+	case "locked":
+		mode = .Locked
 	case:
-		fmt.eprintln("mode must be record, replay or realtime")
+		fmt.eprintln("mode must be record, replay, realtime, plain or locked")
 		os.exit(2)
 	}
 
@@ -95,9 +104,11 @@ frame :: proc(dt: f32) {
 			w.quit()
 		}
 	}
-	if mode == .Record {
+	if mode == .Record || mode == .Locked {
 		push_window_events(n + 1)
-		check_live(n)
+	}
+	if mode == .Record {
+		check_live(n) // window and scripted input mix
 	}
 
 	fmt.sbprintf(&log, "%d:", n)

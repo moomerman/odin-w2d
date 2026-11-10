@@ -47,7 +47,8 @@ check-tests:
 
 # Headless tests (no window; needs a GPU): render and input at 1x and 2x
 # scale, then an ordinary program driven by a W2D_SCRIPT, then a W2D_RECORD
-# recording replayed and checked against the live run.
+# recording replayed and checked against the live run, and W2D_SCRIPT_ONLY
+# shutting out window input.
 test:
     mkdir -p build
     odin build tests/render -out:build/tests-render
@@ -62,6 +63,9 @@ test:
     W2D_HEADLESS=1 W2D_SCRIPT=build/replay-recorded.txt ./build/tests-replay replay build/replay-replayed.log
     cmp build/replay-live.log build/replay-replayed.log
     W2D_RECORD=build/replay-realtime.txt ./build/tests-replay realtime build/replay-realtime.log
+    W2D_HEADLESS=1 W2D_SCRIPT=tests/replay/script.txt ./build/tests-replay plain build/replay-plain.log
+    W2D_HEADLESS=1 W2D_SCRIPT=tests/replay/script.txt W2D_SCRIPT_ONLY=1 ./build/tests-replay locked build/replay-locked.log
+    cmp build/replay-plain.log build/replay-locked.log
 
 # Run an example with no window and save a frame: just example=shapes shot
 # writes build/shots/shapes.png after `frames` frames. See automation.odin.

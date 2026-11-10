@@ -32,6 +32,9 @@ Input_State :: struct {
 	// frame after the window backend's own events.
 	injected:                 [dynamic]core.Event,
 	inject_pos:               Vec2, // pointer position after the queued events
+	// W2D_SCRIPT_ONLY: drop the window's keyboard and mouse events, so only
+	// the script (and inject_*) drive the game.
+	ignore_window_events:     bool,
 }
 
 @(private = "package")
@@ -60,9 +63,13 @@ process_input :: proc() {
 		}
 	}
 
-	// Drain events from the window backend, then any injected ones.
-	for event in ctx.window.get_events() {
-		apply_event(event)
+	// Drain events from the window backend, then any injected ones. Closing
+	// and resizing the window are not events, so they work either way.
+	window_events := ctx.window.get_events()
+	if !input.ignore_window_events {
+		for event in window_events {
+			apply_event(event)
+		}
 	}
 	for event in input.injected {
 		apply_event(event)

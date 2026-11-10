@@ -50,11 +50,13 @@ ctx: Context
 // window and renderer backends automatically.
 //
 // On desktop, init also honours the W2D_* automation environment variables
-// (W2D_HEADLESS, W2D_SCRIPT, W2D_FRAMES, W2D_SCREENSHOT), which let a test or
+// (W2D_HEADLESS, W2D_SCRIPT, W2D_FRAMES, W2D_SCREENSHOT, W2D_RECORD,
+// W2D_SCRIPT_ONLY), which let a test or
 // an agent run any game unattended with no code changes. See automation.odin.
 init :: proc(width: int, height: int, title: string) {
 	auto := automation_configure()
 	ctx.fixed_frame_time = auto.frame_time
+	input.ignore_window_events = auto.script_only
 	if auto.headless {
 		ctx.headless = true
 		init_with_backends(backend.headless(auto.scale), width, height, "")
@@ -82,6 +84,7 @@ init_headless :: proc(width: int, height: int, scale: f32 = 1, frame_time: f32 =
 	// W2D_SCRIPT / W2D_FRAMES still apply; headless, scale and dt are the
 	// caller's, but a recording only replays faithfully at a fixed dt.
 	auto := automation_configure()
+	input.ignore_window_events = auto.script_only
 	ctx.headless = true
 	ctx.fixed_frame_time = frame_time
 	if frame_time <= 0 && auto.record {

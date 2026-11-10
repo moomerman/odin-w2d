@@ -198,6 +198,7 @@ W2D_HEADLESS=1 W2D_SCRIPT=smoke.txt ./mygame
 | `W2D_HEADLESS=1` | No window, as `init_headless`; audio is muted |
 | `W2D_SCALE=2` | Headless only: simulated HiDPI scale |
 | `W2D_SCRIPT=path` | Play a script (works windowed too) |
+| `W2D_SCRIPT_ONLY=1` | With `W2D_SCRIPT`: ignore keyboard and mouse input from the window |
 | `W2D_FRAMES=n` | Quit after `n` frames |
 | `W2D_SCREENSHOT=path` | With `W2D_FRAMES`: save the last frame |
 | `W2D_RECORD=path` | Write the input the game receives as a script (below) |
@@ -206,6 +207,13 @@ A script has one command per line; `#` starts a comment; frames count from
 0, and are the numbers `get_frame_count` returns. Input is applied before that frame's frame proc runs, a screenshot is
 that frame as drawn (taken at `present`), and `quit` stops before that
 frame. A headless script with no `quit` ends after its last command.
+
+In a window, scripted input and live input mix: whatever the person at the
+keyboard and mouse does reaches the game alongside the script. Set
+`W2D_SCRIPT_ONLY=1` to ignore the window's keyboard and mouse events for
+the whole run, so nobody can disturb a replay; closing and resizing the
+window still work. It is off by default (headless runs have no live input
+anyway).
 
 ```
 frame 30  screenshot start.png
