@@ -79,27 +79,24 @@ draw_texture :: proc(tex: Texture, pos: Vec2, tint: Color = WHITE) {
 }
 
 // Draw a sub-region of a texture into a destination rectangle with an optional tint.
-// A negative src width or height flips the region (see source_uv).
+// A negative src width or height mirrors the image (see source_uv).
 draw_texture_rect :: proc(tex: Texture, src: Rect, dst: Rect, tint: Color = WHITE) {
 	emit_quad(dst, source_uv(tex, src), tex.handle, tint)
 }
 
 // Normalized UVs (top-left, top-right, bottom-right, bottom-left) for a
-// pixel-space source rect. A negative width flips the region horizontally
-// and a negative height vertically: the texels are always those of
-// {x, y, |w|, |h|}, so {0, 0, -w, h} is the whole texture mirrored.
+// pixel-space source rect. The rect is taken literally: its left edge is x
+// and its right edge x + w, so a negative width mirrors the image, and
+// covers the texels to the LEFT of x. To flip a sprite cell in place, move
+// the origin to the far edge and negate the size:
+//     src.x += src.w; src.w = -src.w
+// (likewise y and h to flip vertically).
 @(private = "file")
 source_uv :: proc(tex: Texture, src: Rect) -> [4][2]f32 {
 	tw := f32(tex.width)
 	th := f32(tex.height)
-	u0, u1 := src.x / tw, (src.x + abs(src.w)) / tw
-	v0, v1 := src.y / th, (src.y + abs(src.h)) / th
-	if src.w < 0 {
-		u0, u1 = u1, u0
-	}
-	if src.h < 0 {
-		v0, v1 = v1, v0
-	}
+	u0, u1 := src.x / tw, (src.x + src.w) / tw
+	v0, v1 := src.y / th, (src.y + src.h) / th
 	return {{u0, v0}, {u1, v0}, {u1, v1}, {u0, v1}}
 }
 
@@ -130,7 +127,7 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rotation: f32, color: Color) {
 
 // Draw a texture from `src` into `dst`, rotated around `origin` by `rotation` radians.
 // The origin is relative to the destination rectangle's top-left corner.
-// A negative src width or height flips the region, as in draw_texture_rect.
+// A negative src width or height mirrors the image, as in draw_texture_rect.
 draw_texture_ex :: proc(
 	tex: Texture,
 	src: Rect,

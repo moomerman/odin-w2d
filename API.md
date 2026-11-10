@@ -307,11 +307,18 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 draw_stats :: proc()
 ```
 
-`src` is in texture pixels. A negative `src` width flips the image
-horizontally and a negative height flips it vertically, into the same `dst`;
-the texels are still those of `{x, y, |w|, |h|}`, so
-`{0, 0, -f32(tex.width), f32(tex.height)}` is the whole texture mirrored
-(a sprite facing the other way).
+`src` is in texture pixels and is taken literally: its left edge is `x` and
+its right edge `x + w`. A negative width therefore mirrors the image, and
+covers the texels to the left of `x`. To flip a sprite cell in place (a sprite
+facing the other way), move the origin to the far edge and negate the size:
+
+```odin
+src.x += src.w
+src.w = -src.w
+```
+
+Likewise `y` and `h` to flip vertically. `{x, y, -w, h}` on its own draws the
+neighbouring cell mirrored, not this one.
 
 ## Shapes
 

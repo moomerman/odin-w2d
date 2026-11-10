@@ -1016,8 +1016,8 @@ test_save_render_texture :: proc(step: int) -> bool {
 	return true
 }
 
-// A negative source width flips horizontally and a negative height
-// vertically; the texels are still those of {x, y, |w|, |h|}. The texture
+// A source rect is taken literally (left edge x, right edge x + w), so the
+// flip idiom is {x + w, y, -w, h}: the same texels, mirrored. The texture
 // is 4x2: black on the left, red/green over blue/white on the right.
 test_negative_source_flips :: proc(step: int) -> bool {
 	K :: w.Color{0, 0, 0, 255}
@@ -1036,9 +1036,17 @@ test_negative_source_flips :: proc(step: int) -> bool {
 	}
 	cases := [?]Case {
 		{{2, 0, 2, 2}, R, G, B, W, "unflipped"},
-		{{2, 0, -2, 2}, G, R, W, B, "negative width"},
-		{{2, 0, 2, -2}, B, W, R, G, "negative height"},
-		{{2, 0, -2, -2}, W, B, G, R, "both negative"},
+		{{4, 0, -2, 2}, G, R, W, B, "negative width"},
+		{{2, 2, 2, -2}, B, W, R, G, "negative height"},
+		{{4, 2, -2, -2}, W, B, G, R, "both negative"},
+		{
+			{2, 0, -2, 2},
+			K,
+			K,
+			K,
+			K,
+			"negative width from the near edge samples the neighbouring texels",
+		},
 	}
 	for c, i in cases {
 		x := f32(i) * 120
