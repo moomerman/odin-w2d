@@ -1,0 +1,19 @@
+# Drives tests/replay/main.odin; run from the repository root (just test).
+frame 2   key Space down
+frame 4   key Space up
+frame 5   key Left_Shift tap
+frame 6   key key_1 down              # any case; recorded as Key_1
+frame 6   key Return down
+frame 8   key key_1 up
+frame 8   key Return up
+frame 10  mouse move 10 20
+frame 10  mouse move 30.5 40.25       # two moves in a frame: recorded as one
+frame 11  mouse down left
+frame 13  mouse up left
+frame 14  mouse move 200 100
+frame 14  mouse click right
+frame 16  scroll 0 -3
+frame 16  scroll 1 2
+frame 17  scroll 0 4 momentum
+frame 18  mouse move 200 100 5 -5     # relative motion: no change in position
+frame 30  quit

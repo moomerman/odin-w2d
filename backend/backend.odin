@@ -25,3 +25,9 @@ headless :: proc(scale: f32) -> Backends {
 headless_resize :: proc(width, height: int) {
 	window_null.resize(width, height)
 }
+
+// Queue an event as if the OS had delivered it to the headless window, for
+// tests of how the engine treats window input (as opposed to inject_*).
+headless_push_event :: proc(event: core.Event) {
+	window_null.push_event(event)
+}

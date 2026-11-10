@@ -69,6 +69,7 @@ process_input :: proc() {
 	}
 	// (the builtin clear is shadowed by the engine's own clear proc)
 	resize(&input.injected, 0)
+	automation_record_frame() // W2D_RECORD
 
 	// macOS trackpads can deliver DOWN+UP in the same event batch when the
 	// user clicks, then send a sustained DOWN ~500ms later once the OS
@@ -94,6 +95,7 @@ process_input :: proc() {
 
 @(private = "file")
 apply_event :: proc(event: core.Event) {
+	automation_record_event(event) // W2D_RECORD
 	switch e in event {
 	case core.Mouse_Move_Event:
 		input.mouse_pos = e.pos
@@ -316,9 +318,15 @@ inject_key :: proc(key: Key, down: bool) {
 // Queue a pointer move to `pos` (window coordinates). The mouse delta is the
 // distance from the pointer's previous position.
 inject_mouse_move :: proc(pos: Vec2) {
-	prev := inject_pointer()
+	inject_mouse_move_delta(pos, pos - inject_pointer())
+}
+
+// A pointer move that reports `delta`, which need not be the change in
+// position (relative motion). For scripts and their recordings.
+@(private = "package")
+inject_mouse_move_delta :: proc(pos: Vec2, delta: Vec2) {
 	input.inject_pos = pos
-	append(&input.injected, core.Event(core.Mouse_Move_Event{pos = pos, delta = pos - prev}))
+	append(&input.injected, core.Event(core.Mouse_Move_Event{pos = pos, delta = delta}))
 }
 
 // Queue a mouse button press or release at the pointer's current position
@@ -333,10 +341,15 @@ inject_mouse_button :: proc(button: Mouse_Button, down: bool) {
 }
 
 // Queue a scroll of `delta` (positive Y = up) at the pointer's current position.
-inject_scroll :: proc(delta: Vec2) {
+// `momentum` marks it as OS inertia scrolling, which
+// get_scroll_delta(include_momentum = false) leaves out.
+inject_scroll :: proc(delta: Vec2, momentum := false) {
 	pos := inject_pointer()
 	input.inject_pos = pos
-	append(&input.injected, core.Event(core.Mouse_Scroll_Event{delta = delta, pos = pos}))
+	append(
+		&input.injected,
+		core.Event(core.Mouse_Scroll_Event{delta = delta, pos = pos, momentum = momentum}),
+	)
 }
 
 // Where the pointer will be once the events queued so far have been applied.

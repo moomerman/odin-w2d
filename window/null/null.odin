@@ -3,7 +3,8 @@
 // Used by init_headless for tests and CI. The renderer sees a nil surface
 // and draws every frame into its offscreen target, so drawing, readback
 // (read_pixels, save_screenshot) and render textures work as usual; nothing
-// is ever shown. Input comes only from the engine's inject_* procs.
+// is ever shown. Input comes from the engine's inject_* procs, or, to test
+// how the engine treats window input, from push_event.
 //
 // `scale` stands in for a display's backing scale factor: the framebuffer is
 // the logical size multiplied by it, so HiDPI code paths can be exercised on
@@ -19,6 +20,7 @@ state: struct {
 	height:    int,
 	scale:     f32,
 	on_resize: proc(),
+	events:    [dynamic]core.Event,
 }
 
 // Returns a Window_Backend vtable for a window that does not exist.
@@ -52,6 +54,12 @@ resize :: proc(width, height: int) {
 	}
 }
 
+// Queue an event as if the OS had delivered it to the window: the engine
+// receives it from get_events at the start of the next frame.
+push_event :: proc(event: core.Event) {
+	append(&state.events, event)
+}
+
 @(private = "file")
 null_init :: proc(width, height: int, _: string, on_resize: proc()) {
 	state.width = width
@@ -61,6 +69,7 @@ null_init :: proc(width, height: int, _: string, on_resize: proc()) {
 
 @(private = "file")
 null_shutdown :: proc() {
+	delete(state.events)
 	state = {}
 }
 
@@ -88,7 +97,9 @@ null_get_window_size :: proc() -> (width: u32, height: u32) {
 
 @(private = "file")
 null_get_events :: proc() -> []core.Event {
-	return nil
+	result := state.events[:]
+	clear(&state.events) // the slice stays valid until the next push_event
+	return result
 }
 
 @(private = "file")

@@ -200,6 +200,7 @@ W2D_HEADLESS=1 W2D_SCRIPT=smoke.txt ./mygame
 | `W2D_SCRIPT=path` | Play a script (works windowed too) |
 | `W2D_FRAMES=n` | Quit after `n` frames |
 | `W2D_SCREENSHOT=path` | With `W2D_FRAMES`: save the last frame |
+| `W2D_RECORD=path` | Write the input the game receives as a script (below) |
 
 A script has one command per line; `#` starts a comment; frames count from
 0, and are the numbers `get_frame_count` returns. Input is applied before that frame's frame proc runs, a screenshot is
@@ -211,8 +212,10 @@ frame 30  screenshot start.png
 frame 31  key Space down        # Key enum names, any case; down | up | tap
 frame 33  key Space up
 frame 50  mouse move 320 200    # window coordinates
+frame 50  mouse move 320 200 4 0  # optional delta to report (default: change in position)
 frame 51  mouse click left      # down | up | click, left | right | middle
 frame 60  scroll 0 -3
+frame 61  scroll 0 -1 momentum  # as OS inertia scrolling
 frame 70  resize 800 600        # headless only
 frame 120 quit
 ```
@@ -220,6 +223,25 @@ frame 120 quit
 The process exits with status 2 for a script that cannot be parsed and 1 if
 a screenshot could not be saved or was never reached. `just example=<name>
 shot` does the one-screenshot form for an example.
+
+`W2D_RECORD=path` writes every input event the game receives, from the
+window and from `inject_*` (a `W2D_SCRIPT`'s and the game's own), as script
+lines, so `W2D_SCRIPT=path` replays the session. Recording fixes dt at
+1/60 s even in a window (and under `init_headless(frame_time = 0)`), since a
+replay is only faithful if the game saw the same frame times; on a display
+faster than 60 Hz the recorded session runs fast. Lines are flushed frame by
+frame, so a crash keeps what was recorded, and the file ends with `quit` at
+the frame the run stopped. Per frame, mouse motion is one `mouse move` to
+the final position (with the frame's delta when it is not the change in
+position), and scrolling one `scroll` with and one without `momentum`. Key
+repeats only re-report a held key and are left out. Resizes, gamepads and
+screenshots are not recorded. A game that calls `inject_*` itself injects
+again on replay, on top of the recorded copies.
+
+```
+W2D_RECORD=session.txt ./mygame                        # play; close the window to stop
+W2D_HEADLESS=1 W2D_SCRIPT=session.txt ./mygame         # replay unseen
+```
 
 ## Assets
 
@@ -589,7 +611,7 @@ the start of the next frame, as if the OS had delivered them.
 inject_key :: proc(key: Key, down: bool)
 inject_mouse_move :: proc(pos: Vec2) // delta is the distance from the previous position
 inject_mouse_button :: proc(button: Mouse_Button, down: bool) // at the pointer's position
-inject_scroll :: proc(delta: Vec2)
+inject_scroll :: proc(delta: Vec2, momentum := false) // momentum: OS inertia, left out by get_scroll_delta(false)
 ```
 
 ## Input - Cursor

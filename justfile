@@ -43,10 +43,13 @@ check-tools:
 check-tests:
     odin check tests/render {{vet_flags}} -vet-packages:main
     odin check tests/automation {{vet_flags}} -vet-packages:main
+    odin check tests/replay {{vet_flags}} -vet-packages:main
 
 # Headless tests (no window; needs a GPU): render and input at 1x and 2x
-# scale, then an ordinary program driven by a W2D_SCRIPT.
+# scale, then an ordinary program driven by a W2D_SCRIPT, then a W2D_RECORD
+# recording replayed and checked against the live run.
 test:
+    mkdir -p build
     odin build tests/render -out:build/tests-render
     ./build/tests-render 1
     ./build/tests-render 2
@@ -54,6 +57,11 @@ test:
     rm -f build/automation-shot.png
     W2D_HEADLESS=1 W2D_SCRIPT=tests/automation/script.txt ./build/tests-automation
     test -s build/automation-shot.png
+    odin build tests/replay -out:build/tests-replay
+    W2D_HEADLESS=1 W2D_SCRIPT=tests/replay/script.txt W2D_RECORD=build/replay-recorded.txt ./build/tests-replay record build/replay-live.log
+    W2D_HEADLESS=1 W2D_SCRIPT=build/replay-recorded.txt ./build/tests-replay replay build/replay-replayed.log
+    cmp build/replay-live.log build/replay-replayed.log
+    W2D_RECORD=build/replay-realtime.txt ./build/tests-replay realtime build/replay-realtime.log
 
 # Run an example with no window and save a frame: just example=shapes shot
 # writes build/shots/shapes.png after `frames` frames. See automation.odin.

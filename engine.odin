@@ -73,15 +73,20 @@ init :: proc(width: int, height: int, title: string) {
 // width by height.
 //
 // `frame_time` is the dt every frame reports (and get_time advances by), so
-// runs are deterministic whatever the machine's speed. Pass 0 for real time.
+// runs are deterministic whatever the machine's speed. Pass 0 for real time
+// (except under W2D_RECORD, which needs a fixed dt and uses 1/60 s).
 //
 // There is no close button and no OS input: end the run with quit(), and
 // drive input with the inject_* procs.
 init_headless :: proc(width: int, height: int, scale: f32 = 1, frame_time: f32 = 1.0 / 60.0) {
-	// W2D_SCRIPT / W2D_FRAMES still apply; headless, scale and dt are the caller's.
-	_ = automation_configure()
+	// W2D_SCRIPT / W2D_FRAMES still apply; headless, scale and dt are the
+	// caller's, but a recording only replays faithfully at a fixed dt.
+	auto := automation_configure()
 	ctx.headless = true
 	ctx.fixed_frame_time = frame_time
+	if frame_time <= 0 && auto.record {
+		ctx.fixed_frame_time = auto.frame_time
+	}
 	init_with_backends(backend.headless(scale), width, height, "")
 }
 
